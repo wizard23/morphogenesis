@@ -352,7 +352,7 @@ function renderFrame() {
   // Calculate total frame time
   const frameEnd = performance.now();
   const totalFrameTimeMs = frameEnd - frameStart;
-
+// console.log(totalFrameTimeMs);
   // Update timing display with detailed breakdown
   let statusText;
   if (isPaused) {

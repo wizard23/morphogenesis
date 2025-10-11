@@ -33,10 +33,10 @@ pub fn initializeGridParticles() void {
     var grid_index: u32 = 0;
 
     // Space grids 150 pixels apart
-    const grid_spacing = 250.0;
-    for (0..5) |row| {
-        for (0..5) |col| {
-            const x = (@as(f32, @floatFromInt(col)) - 2.0) * grid_spacing;
+    const grid_spacing = 200.0;
+    for (0..3) |row| {
+        for (0..3) |col| {
+            const x = (@as(f32, @floatFromInt(col)) - 1.0) * grid_spacing;
             const y = (@as(f32, @floatFromInt(row)) - 1.0) * grid_spacing;
             grid_positions[grid_index] = [_]f32{ x, y };
             grid_index += 1;
@@ -81,10 +81,10 @@ pub fn initializeFreeAgents() void {
         const fallback_height = 1080.0; // Reasonable default
         const actual_width = if (world_width > 10.0) world_width else fallback_width;
         const actual_height = if (world_height > 10.0) world_height else fallback_height;
-        const range_x = actual_width * 0.4; // Use 80% of world width centered
-        const range_y = actual_height * 0.4; // Use 80% of world height centered
+        const range_x = (actual_width * 0.4); // Use 80% of world width centered
+        const range_y = (actual_height * 0.4); // Use 80% of world height centered
         const x = ((@sin(seed * 12.9898) + 1.0) * 0.5 - 0.5) * range_x;
-        const y = ((@sin(seed * 78.233) + 1.0) * 0.5 - 0.5) * range_y;
+        const y = ((@sin(seed * 78.233) + 1.0) * 0.5 - 0.1) * range_y;
 
         const particle = Particle.initWithValence(x, y, 255, 0);
         _ = main.spawnParticle(particle);
@@ -109,4 +109,3 @@ pub fn addParticleConnection(particle_index: u32, spring_handle: main.SpringHand
         main.setParticleConnectionCount(particle_index, count + 1);
     }
 }
-

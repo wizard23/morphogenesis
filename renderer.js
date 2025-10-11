@@ -154,7 +154,7 @@ class MorphogenesisRenderer {
           var base_color: vec3<f32>;
           
           if (desired_valence == 0.0) {
-              base_color = vec3<f32>(0.3, 0.3, 0.3); // Gray for inert (valence 0)
+              base_color = vec3<f32>(0.9, 0.9, 0.9); // Gray for inert (valence 0)
           } else if (desired_valence == 1.0) {
               base_color = vec3<f32>(1.0, 0.2, 0.2); // Red for valence 1
           } else if (desired_valence == 2.0) {

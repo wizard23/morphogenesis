@@ -1,7 +1,7 @@
 const std = @import("std");
 
-// Generational Index System for safe entity references
-// Provides O(1) spawn/destroy with handle-based safety and dense iteration
+// Simplified Generational Arena using only dense arrays
+// Provides O(1) spawn/destroy with handle-based safety
 
 pub const Generation = u16;
 pub const Index = u16;
@@ -29,49 +29,38 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
             }
         };
 
-        const Slot = struct {
+        const Entry = struct {
             data: T,
-            generation: Generation,
-            is_alive: bool,
-
-            pub fn init() @This() {
-                return @This(){
-                    .data = undefined,
-                    .generation = 0,
-                    .is_alive = false,
-                };
-            }
+            handle: Handle,
         };
 
-        // Storage
-        slots: [capacity]Slot,
+        // Dense storage only
+        entries: [capacity]Entry,
+        count: u32,
+        
+        // Mapping from handle index to dense index
+        sparse_to_dense: [capacity]u32,
+        generations: [capacity]Generation,
+        
+        // Free list
         free_indices: [capacity]u16,
         free_count: u32,
-        alive_count: u32,
-
-        // Dense arrays for performance
-        dense_data: [capacity]T,
-        dense_handles: [capacity]Handle,
-        dense_count: u32,
-        handle_to_dense: [capacity]u32,
 
         pub fn init() Self {
             var self = Self{
-                .slots = undefined,
+                .entries = undefined,
+                .count = 0,
+                .sparse_to_dense = undefined,
+                .generations = undefined,
                 .free_indices = undefined,
                 .free_count = capacity,
-                .alive_count = 0,
-                .dense_data = undefined,
-                .dense_handles = undefined,
-                .dense_count = 0,
-                .handle_to_dense = undefined,
             };
 
-            // Initialize slots and free list
+            // Initialize free list and generations
             for (0..capacity) |i| {
-                self.slots[i] = Slot.init();
                 self.free_indices[i] = @intCast(i);
-                self.handle_to_dense[i] = 0xFFFFFFFF;
+                self.sparse_to_dense[i] = 0xFFFFFFFF;
+                self.generations[i] = 0;
             }
 
             return self;
@@ -84,123 +73,137 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
 
             // Get next free slot
             self.free_count -= 1;
-            const index = self.free_indices[self.free_count];
-
-            // Initialize slot
-            var slot = &self.slots[index];
-            slot.data = data;
-            slot.generation += 1; // Increment generation to invalidate old handles
-            slot.is_alive = true;
-
-            self.alive_count += 1;
-
-            return Handle{
-                .index = index,
-                .generation = slot.generation,
+            const sparse_index = self.free_indices[self.free_count];
+            
+            // Increment generation
+            self.generations[sparse_index] += 1;
+            
+            // Add to dense array
+            const dense_index = self.count;
+            self.entries[dense_index] = Entry{
+                .data = data,
+                .handle = Handle{
+                    .index = sparse_index,
+                    .generation = self.generations[sparse_index],
+                },
             };
+            
+            // Update mapping
+            self.sparse_to_dense[sparse_index] = dense_index;
+            self.count += 1;
+
+            return self.entries[dense_index].handle;
         }
 
         pub fn destroy(self: *Self, handle: Handle) void {
             if (!handle.isValid()) return;
-
-            const slot = &self.slots[handle.index];
-            if (!slot.is_alive or slot.generation != handle.generation) return;
-
-            // Mark as dead
-            slot.is_alive = false;
-            self.alive_count -= 1;
-
-            // Add to free list
+            if (handle.index >= capacity) return;
+            if (self.generations[handle.index] != handle.generation) return;
+            
+            const dense_index = self.sparse_to_dense[handle.index];
+            if (dense_index >= self.count) return;
+            
+            // Swap with last element
+            const last_index = self.count - 1;
+            if (dense_index != last_index) {
+                self.entries[dense_index] = self.entries[last_index];
+                // Update mapping for swapped element
+                self.sparse_to_dense[self.entries[dense_index].handle.index] = dense_index;
+            }
+            
+            self.count -= 1;
+            
+            // Clear mapping and add to free list
+            self.sparse_to_dense[handle.index] = 0xFFFFFFFF;
             self.free_indices[self.free_count] = handle.index;
             self.free_count += 1;
         }
 
         pub fn get(self: *const Self, handle: Handle) ?*const T {
             if (!handle.isValid()) return null;
-
-            const slot = &self.slots[handle.index];
-            if (!slot.is_alive or slot.generation != handle.generation) return null;
-
-            return &slot.data;
+            if (handle.index >= capacity) return null;
+            if (self.generations[handle.index] != handle.generation) return null;
+            
+            const dense_index = self.sparse_to_dense[handle.index];
+            if (dense_index >= self.count) return null;
+            
+            return &self.entries[dense_index].data;
         }
 
         pub fn getMut(self: *Self, handle: Handle) ?*T {
             if (!handle.isValid()) return null;
-
-            const slot = &self.slots[handle.index];
-            if (!slot.is_alive or slot.generation != handle.generation) return null;
-
-            return &slot.data;
-        }
-
-        pub fn rebuildDenseArrays(self: *Self) void {
-            self.dense_count = 0;
-
-            // Initialize lookup table
-            for (0..capacity) |i| {
-                self.handle_to_dense[i] = 0xFFFFFFFF;
-            }
-
-            // Build dense arrays
-            for (0..capacity) |i| {
-                const slot = &self.slots[i];
-                if (slot.is_alive) {
-                    self.dense_data[self.dense_count] = slot.data;
-                    self.dense_handles[self.dense_count] = Handle{ .index = @intCast(i), .generation = slot.generation };
-                    self.handle_to_dense[i] = self.dense_count;
-                    self.dense_count += 1;
-                }
-            }
-        }
-
-        pub fn writeDenseToSparse(self: *Self) void {
-            for (0..self.dense_count) |i| {
-                const handle = self.dense_handles[i];
-                if (handle.index < capacity) {
-                    const slot = &self.slots[handle.index];
-                    if (slot.is_alive and slot.generation == handle.generation) {
-                        slot.data = self.dense_data[i];
-                    }
-                }
-            }
+            if (handle.index >= capacity) return null;
+            if (self.generations[handle.index] != handle.generation) return null;
+            
+            const dense_index = self.sparse_to_dense[handle.index];
+            if (dense_index >= self.count) return null;
+            
+            return &self.entries[dense_index].data;
         }
 
         pub fn getDenseIndex(self: *const Self, handle: Handle) ?u32 {
+            if (!handle.isValid()) return null;
             if (handle.index >= capacity) return null;
-            const dense_idx = self.handle_to_dense[handle.index];
-            if (dense_idx == 0xFFFFFFFF) return null;
-            if (dense_idx >= self.dense_count) return null;
-
-            // Verify generation matches
-            if (self.dense_handles[dense_idx].generation != handle.generation) return null;
-
-            return dense_idx;
+            if (self.generations[handle.index] != handle.generation) return null;
+            
+            const dense_index = self.sparse_to_dense[handle.index];
+            if (dense_index >= self.count) return null;
+            
+            return dense_index;
         }
 
         pub fn getDenseData(self: *const Self) []const T {
-            return self.dense_data[0..self.dense_count];
+            var data_array: [capacity]T = undefined;
+            for (0..self.count) |i| {
+                data_array[i] = self.entries[i].data;
+            }
+            return data_array[0..self.count];
         }
 
-        pub fn getDenseDataMut(self: *Self) []T {
-            return self.dense_data[0..self.dense_count];
+        pub fn fillDenseArray(self: *Self, out_array: []T) void {
+            // Copy dense data into provided array
+            for (0..@min(self.count, out_array.len)) |i| {
+                out_array[i] = self.entries[i].data;
+            }
+        }
+        
+        pub fn getDataAt(self: *Self, index: u32) *T {
+            return &self.entries[index].data;
         }
 
         pub fn getDenseHandles(self: *const Self) []const Handle {
-            return self.dense_handles[0..self.dense_count];
+            var handles: [capacity]Handle = undefined;
+            for (0..self.count) |i| {
+                handles[i] = self.entries[i].handle;
+            }
+            return handles[0..self.count];
+        }
+        
+        pub fn getHandleAt(self: *const Self, index: u32) Handle {
+            return self.entries[index].handle;
         }
 
         pub fn getAliveCount(self: *const Self) u32 {
-            return self.alive_count;
+            return self.count;
         }
 
         pub fn getDenseCount(self: *const Self) u32 {
-            return self.dense_count;
+            return self.count;
         }
 
-        // Iterator for dense data (faster)
+        // These are now no-ops since we always maintain dense arrays
+        pub fn rebuildDenseArrays(self: *Self) void {
+            _ = self;
+        }
+
+        pub fn writeDenseToSparse(self: *Self) void {
+            _ = self;
+        }
+
+        // Iterator for dense data
         pub fn forEachDense(self: *const Self, func: *const fn (Handle, *const T) void) void {
-            for (0..self.dense_count) |i| {
-                func(self.dense_handles[i], &self.dense_data[i]);
+            for (0..self.count) |i| {
+                func(self.entries[i].handle, &self.entries[i].data);
             }
         }
     };

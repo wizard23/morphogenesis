@@ -6,7 +6,7 @@ const BASE_WORLD_SIZE = main_module.WORLD_SIZE;
 
 // Spatial partitioning grid for O(n) performance
 // Fixed bin size = 10 particle diameters
-pub const BIN_SIZE_PIXELS = 6.0 * (2.0 * main_module.PARTICLE_SIZE); // 10 particle diameters
+pub const BIN_SIZE_PIXELS = 6.0 * (2.0 * main_module.PARTICLE_SIZE);
 pub const MAX_PARTICLES_PER_CELL = 500;
 
 // Dynamic grid size based on world dimensions and fixed bin size
@@ -41,11 +41,17 @@ pub const GridCell = struct {
 
 // Maximum grid dimensions (for static allocation)
 const MAX_GRID_SIZE = 100;
+const MAX_GRID_CELLS = MAX_GRID_SIZE * MAX_GRID_SIZE;
 
-// Spatial grid for fast neighbor queries (using max size for static allocation)
-pub var spatial_grid: [MAX_GRID_SIZE][MAX_GRID_SIZE]GridCell = undefined;
+// Flat spatial grid for better cache locality
+pub var spatial_grid: [MAX_GRID_CELLS]GridCell = undefined;
 var grid_initialized = false;
 var max_occupancy: u32 = 0;
+
+// Helper to convert 2D coords to flat index
+inline fn gridIndex(x: u32, y: u32) u32 {
+    return y * grid_size_x + x;
+}
 
 // Spatial grid helper functions with fixed bin size
 pub inline fn worldToGridX(world_x: f32) i32 {
@@ -62,11 +68,16 @@ pub inline fn worldToGridY(world_y: f32) i32 {
     return @max(0, @min(@as(i32, @intCast(grid_size_y)) - 1, grid_pos));
 }
 
-
 pub fn getGridCell(x: f32, y: f32) *GridCell {
     const gx = worldToGridX(x);
     const gy = worldToGridY(y);
-    return &spatial_grid[@intCast(gx)][@intCast(gy)];
+    const idx = gridIndex(@intCast(gx), @intCast(gy));
+    return &spatial_grid[idx];
+}
+
+pub fn getGridCellByCoords(gx: u32, gy: u32) *GridCell {
+    const idx = gridIndex(gx, gy);
+    return &spatial_grid[idx];
 }
 
 pub fn updateGridDimensions() void {
@@ -82,10 +93,10 @@ pub fn initializeGrid() void {
     if (!grid_initialized) {
         updateGridDimensions();
 
-        for (0..MAX_GRID_SIZE) |i| {
-            for (0..MAX_GRID_SIZE) |j| {
-                spatial_grid[i][j] = GridCell.init();
-            }
+        // Initialize only the cells we'll actually use
+        const total_cells = grid_size_x * grid_size_y;
+        for (0..total_cells) |i| {
+            spatial_grid[i] = GridCell.init();
         }
         grid_initialized = true;
     }
@@ -93,10 +104,9 @@ pub fn initializeGrid() void {
 
 pub fn clearGrid() void {
     max_occupancy = 0;
-    for (0..grid_size_x) |i| {
-        for (0..grid_size_y) |j| {
-            spatial_grid[i][j].clear();
-        }
+    const total_cells = grid_size_x * grid_size_y;
+    for (0..total_cells) |i| {
+        spatial_grid[i].clear();
     }
 }
 
@@ -120,3 +130,6 @@ pub fn getMaxOccupancy() u32 {
 }
 
 // Get grid dimensions
+pub fn getGridDimensions() struct { x: u32, y: u32 } {
+    return .{ .x = grid_size_x, .y = grid_size_y };
+}

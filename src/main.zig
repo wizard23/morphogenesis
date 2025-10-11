@@ -6,11 +6,11 @@ const generational = @import("generational.zig");
 const mouse = @import("mouse.zig");
 const physics = @import("physics.zig");
 
-pub const GRID_COUNT = 5;
+pub const GRID_COUNT = 3;
 pub const GRID_PARTICLE_SIZE = 12;
 pub const PARTICLES_PER_GRID = GRID_PARTICLE_SIZE * GRID_PARTICLE_SIZE;
 pub const TOTAL_GRID_PARTICLES = GRID_COUNT * PARTICLES_PER_GRID;
-pub const FREE_AGENT_COUNT = 1000;
+pub const FREE_AGENT_COUNT = 500;
 pub const EXTRA_PARTICLE_SLOTS = 10000;
 pub const PARTICLE_COUNT = TOTAL_GRID_PARTICLES + FREE_AGENT_COUNT + EXTRA_PARTICLE_SLOTS;
 
@@ -22,25 +22,18 @@ var world_width: f32 = WORLD_SIZE;
 var world_height: f32 = WORLD_SIZE;
 
 const XPBD_ITERATIONS = 6;
-const XPBD_SUBSTEPS = 6;
+// const XPBD_SUBSTEPS = 6;
 
-const DISTANCE_STIFFNESS = 10000000.0;
+const DISTANCE_STIFFNESS = 1000_000_000.0;
 const COLLISION_STIFFNESS = 1.0;
 const MOUSE_STIFFNESS = 50000.0;
 
-const AIR_DAMPING = 0.99;
+const AIR_DAMPING = 1.0;
 const GRAVITY = 25.0;
 
 pub const SPRING_REST_LENGTH = PARTICLE_SIZE * 3.1;
 const SEPARATION_RADIUS = PARTICLE_SIZE * 1.5;
-pub const GRID_SPACING = PARTICLE_SIZE * 2.6;
-
-const BOIDS_SEPARATION_RADIUS = PARTICLE_SIZE * 3.0;
-const BOIDS_ALIGNMENT_RADIUS = PARTICLE_SIZE * 5.0;
-const BOIDS_COHESION_RADIUS = PARTICLE_SIZE * 7.0;
-const BOIDS_SEPARATION_STIFFNESS = 1.0;
-const BOIDS_ALIGNMENT_STIFFNESS = 10.0;
-const BOIDS_COHESION_STIFFNESS = 50.0;
+pub const GRID_SPACING = PARTICLE_SIZE * 2.8;
 
 const SPRING_STRENGTH = DISTANCE_STIFFNESS;
 const SEPARATION_STRENGTH = COLLISION_STIFFNESS;
@@ -49,8 +42,8 @@ const GRID_MAX_SPRINGS = GRID_COUNT * PARTICLES_PER_GRID * 4;
 const USER_ADDED_MAX_SPRINGS = EXTRA_PARTICLE_SLOTS * 2;
 pub const MAX_SPRINGS = GRID_MAX_SPRINGS + USER_ADDED_MAX_SPRINGS;
 
-const ParticleArena = generational.GenerationalArena(Particle, PARTICLE_COUNT);
-const SpringArena = generational.GenerationalArena(Spring, MAX_SPRINGS);
+pub const ParticleArena = generational.GenerationalArena(Particle, PARTICLE_COUNT);
+pub const SpringArena = generational.GenerationalArena(Spring, MAX_SPRINGS);
 
 pub const ParticleHandle = ParticleArena.Handle;
 pub const SpringHandle = SpringArena.Handle;
@@ -169,17 +162,8 @@ pub const Spring = struct {
     }
 };
 
-const MAX_DISTANCE_CONSTRAINTS = MAX_SPRINGS;
-const MAX_COLLISION_CONSTRAINTS = 50000;
-const MAX_BOIDS_SEPARATION_CONSTRAINTS = FREE_AGENT_COUNT * 16;
-const MAX_BOIDS_ALIGNMENT_CONSTRAINTS = FREE_AGENT_COUNT;
-const MAX_BOIDS_COHESION_CONSTRAINTS = FREE_AGENT_COUNT;
-
-var distance_constraints: [MAX_DISTANCE_CONSTRAINTS]physics.DistanceConstraint = undefined;
-var collision_constraints: [MAX_COLLISION_CONSTRAINTS]physics.CollisionConstraint = undefined;
-var boids_separation_constraints: [MAX_BOIDS_SEPARATION_CONSTRAINTS]physics.SeparationConstraint = undefined;
-var boids_alignment_constraints: [MAX_BOIDS_ALIGNMENT_CONSTRAINTS]physics.AlignmentConstraint = undefined;
-var boids_cohesion_constraints: [MAX_BOIDS_COHESION_CONSTRAINTS]physics.CohesionConstraint = undefined;
+const MAX_CONSTRAINTS = MAX_SPRINGS + 50000; // Distance + collision constraints
+var constraints: [MAX_CONSTRAINTS]physics.Constraint = undefined;
 
 var particle_arena: generational.GenerationalArena(Particle, PARTICLE_COUNT) = undefined;
 var particles_initialized = false;
@@ -215,40 +199,11 @@ fn initializeSpringSystems() void {
     spring_arena = SpringArena.init();
 }
 
-// Physics system callback functions
-fn getParticlePtrCallback(handle: ParticleHandle) ?*anyopaque {
-    if (particle_arena.getMut(handle)) |particle| {
-        return @ptrCast(particle);
-    }
-    return null;
-}
-
-fn getSpringPtrCallback(handle: SpringHandle) ?*anyopaque {
-    if (spring_arena.getMut(handle)) |spring| {
-        return @ptrCast(spring);
-    }
-    return null;
-}
-
-fn destroySpringCallback(handle: SpringHandle) void {
-    destroySpring(handle);
-}
-
-fn getDenseParticleIndexCallback(handle: ParticleHandle) ?u32 {
-    return particle_arena.getDenseIndex(handle);
-}
-
 fn initializePhysicsSystem() void {
     physics_system = physics.PhysicsSystem.init(
-        &distance_constraints,
-        &collision_constraints,
-        &boids_separation_constraints,
-        &boids_alignment_constraints,
-        &boids_cohesion_constraints,
-        getParticlePtrCallback,
-        getSpringPtrCallback,
-        destroySpringCallback,
-        getDenseParticleIndexCallback,
+        &particle_arena,
+        &spring_arena,
+        &constraints,
     );
 }
 
@@ -294,30 +249,33 @@ pub fn getSpring(handle: SpringHandle) ?Spring {
 }
 
 fn predictPositionsForAliveParticles(dt: f32) void {
-    const dense_data = particle_arena.getDenseDataMut();
-    const dense_handles = particle_arena.getDenseHandles();
-    for (dense_data, 0..) |*particle, i| {
-        if (mouse.isMouseParticle(dense_handles[i])) {
+    const count = particle_arena.getDenseCount();
+    for (0..count) |i| {
+        const handle = particle_arena.getHandleAt(@intCast(i));
+        if (mouse.isMouseParticle(handle)) {
             continue;
         }
+        const particle = particle_arena.getDataAt(@intCast(i));
         particle.predictPosition(dt);
     }
 }
 
 fn updatePositionsForAliveParticles(dt: f32) void {
-    const dense_data = particle_arena.getDenseDataMut();
-    const dense_handles = particle_arena.getDenseHandles();
-    for (dense_data, 0..) |*particle, i| {
-        if (mouse.isMouseParticle(dense_handles[i])) {
+    const count = particle_arena.getDenseCount();
+    for (0..count) |i| {
+        const handle = particle_arena.getHandleAt(@intCast(i));
+        if (mouse.isMouseParticle(handle)) {
             continue;
         }
+        const particle = particle_arena.getDataAt(@intCast(i));
         particle.updateFromPrediction(dt);
     }
 }
 
 fn resetValenceForAliveParticles() void {
-    const dense_data = particle_arena.getDenseDataMut();
-    for (dense_data) |*particle| {
+    const count = particle_arena.getDenseCount();
+    for (0..count) |i| {
+        const particle = particle_arena.getDataAt(@intCast(i));
         particle.current_valence = 0;
     }
 }
@@ -375,13 +333,7 @@ pub fn findClosestParticleIndex(target_x: f32, target_y: f32) u32 {
     return closest_index;
 }
 
-fn rebuildDenseArrays() void {
-    particle_arena.rebuildDenseArrays();
-}
-
-fn writeDenseToSparse() void {
-    particle_arena.writeDenseToSparse();
-}
+// Dense arrays are now always maintained - no rebuild needed
 
 pub fn getSpringCount() u32 {
     return spring_arena.getAliveCount();
@@ -404,19 +356,18 @@ pub fn setParticleConnection(particle_index: u32, connection_index: u8, spring_h
 }
 
 fn updateValenceBonds() void {
-    const dense_particles = particle_arena.getDenseDataMut();
-    const dense_particle_handles = particle_arena.getDenseHandles();
     const dense_particle_count = particle_arena.getDenseCount();
 
     for (0..dense_particle_count) |i| {
-        const handle_a = dense_particle_handles[i];
-        const particle_a = &dense_particles[i];
+        const handle_a = particle_arena.getHandleAt(@intCast(i));
+        const particle_a = particle_arena.getDataAt(@intCast(i));
 
         if (particle_a.current_valence >= particle_a.desired_valence) continue;
+        // todo use neighbors
 
         for ((i + 1)..dense_particle_count) |j| {
-            const handle_b = dense_particle_handles[j];
-            const particle_b = &dense_particles[j];
+            const handle_b = particle_arena.getHandleAt(@intCast(j));
+            const particle_b = particle_arena.getDataAt(@intCast(j));
 
             if (particle_b.current_valence >= particle_b.desired_valence) continue;
 
@@ -429,11 +380,10 @@ fn updateValenceBonds() void {
 
             if (distance >= min_bond_distance and distance <= max_bond_distance) {
                 var already_connected = false;
-                const dense_springs = spring_arena.getDenseData();
                 const spring_count = spring_arena.getDenseCount();
 
                 for (0..spring_count) |s| {
-                    const spring = &dense_springs[s];
+                    const spring = spring_arena.getDataAt(@intCast(s));
                     if ((spring.particle_a.eql(handle_a) and spring.particle_b.eql(handle_b)) or
                         (spring.particle_a.eql(handle_b) and spring.particle_b.eql(handle_a)))
                     {
@@ -453,10 +403,10 @@ fn updateValenceBonds() void {
                         reset_module.addParticleConnection(handle_a.index, spring_handle);
                         reset_module.addParticleConnection(handle_b.index, spring_handle);
 
-                        dense_particles[i].current_valence += 1;
-                        dense_particles[j].current_valence += 1;
+                        particle_arena.getDataAt(@intCast(i)).current_valence += 1;
+                        particle_arena.getDataAt(@intCast(j)).current_valence += 1;
 
-                        if (dense_particles[i].current_valence >= dense_particles[i].desired_valence) break;
+                        if (particle_arena.getDataAt(@intCast(i)).current_valence >= particle_arena.getDataAt(@intCast(i)).desired_valence) break;
                     }
                 }
             }
@@ -514,9 +464,8 @@ export fn reset() void {
 }
 
 export fn update_particles(dt: f32) void {
+    const microDt = dt / XPBD_ITERATIONS;
     if (!particles_initialized) return;
-
-    rebuildDenseArrays();
 
     predictPositionsForAliveParticles(dt);
 
@@ -525,36 +474,17 @@ export fn update_particles(dt: f32) void {
     updateValenceBonds();
 
     // Use physics system to generate and solve constraints
-    const dense_springs = spring_arena.getDenseData();
-    const dense_spring_handles = spring_arena.getDenseHandles();
-    const spring_count = spring_arena.getDenseCount();
-    const dense_particles = particle_arena.getDenseDataMut();
-    const dense_particle_handles = particle_arena.getDenseHandles();
-    const dense_particle_count = particle_arena.getDenseCount();
-
-    physics_system.generateConstraints(
-        dt,
-        dense_springs,
-        dense_spring_handles,
-        spring_count,
-        dense_particles,
-        dense_particle_handles,
-        dense_particle_count,
-        DISTANCE_STIFFNESS,
-        COLLISION_STIFFNESS,
-    );
 
     for (0..XPBD_ITERATIONS) |_| {
-        physics_system.solveConstraints(dt, particle_arena.getDenseDataMut());
-    }
-
-    for (0..XPBD_SUBSTEPS) |_| {
-        physics_system.solveCollisionConstraintsOnly(dt, particle_arena.getDenseDataMut());
+        physics_system.generateConstraints(
+            microDt,
+            DISTANCE_STIFFNESS,
+            COLLISION_STIFFNESS,
+        );
+        physics_system.solveConstraints(microDt);
     }
 
     updatePositionsForAliveParticles(dt);
-
-    writeDenseToSparse();
 }
 
 export fn get_particle_count() i32 {
@@ -686,13 +616,10 @@ export fn get_alive_spring_count() i32 {
 }
 
 export fn get_particle_data_bulk() [*]f32 {
-    rebuildDenseArrays();
-
-    const dense_particles = particle_arena.getDenseData();
     const dense_particle_count = particle_arena.getDenseCount();
     var write_index: u32 = 0;
     for (0..dense_particle_count) |i| {
-        const particle = &dense_particles[i];
+        const particle = particle_arena.getDataAt(@intCast(i));
 
         if (write_index + 3 < PARTICLE_COUNT * 4) {
             particle_bulk_buffer[write_index] = particle.x;
@@ -707,28 +634,20 @@ export fn get_particle_data_bulk() [*]f32 {
 }
 
 export fn get_spring_data_bulk() [*]f32 {
-    rebuildDenseArrays();
-    spring_arena.rebuildDenseArrays();
-
-    const dense_springs = spring_arena.getDenseData();
     const spring_count = spring_arena.getDenseCount();
     var write_index: u32 = 0;
 
     for (0..spring_count) |i| {
-        const spring = &dense_springs[i];
+        const spring = spring_arena.getDataAt(@intCast(i));
 
-        const idx_a = particle_arena.getDenseIndex(spring.particle_a);
-        const idx_b = particle_arena.getDenseIndex(spring.particle_b);
+        const particle_a = particle_arena.getMut(spring.particle_a);
+        const particle_b = particle_arena.getMut(spring.particle_b);
 
-        if (idx_a != null and idx_b != null and write_index + 3 < MAX_SPRINGS * 4) {
-            const dense_particles = particle_arena.getDenseData();
-            const particle_a = &dense_particles[idx_a.?];
-            const particle_b = &dense_particles[idx_b.?];
-
-            spring_bulk_buffer[write_index] = particle_a.x;
-            spring_bulk_buffer[write_index + 1] = particle_a.y;
-            spring_bulk_buffer[write_index + 2] = particle_b.x;
-            spring_bulk_buffer[write_index + 3] = particle_b.y;
+        if (particle_a != null and particle_b != null and write_index + 3 < MAX_SPRINGS * 4) {
+            spring_bulk_buffer[write_index] = particle_a.?.x;
+            spring_bulk_buffer[write_index + 1] = particle_a.?.y;
+            spring_bulk_buffer[write_index + 2] = particle_b.?.x;
+            spring_bulk_buffer[write_index + 3] = particle_b.?.y;
             write_index += 4;
         }
     }

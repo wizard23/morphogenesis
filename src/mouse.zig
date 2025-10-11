@@ -96,7 +96,7 @@ pub fn findParticlesInGrabRadius() [MAX_GRAB_PARTICLES]main.ParticleHandle {
             if (check_x >= 0 and check_x < @as(i32, @intCast(spatial.grid_size_x)) and 
                 check_y >= 0 and check_y < @as(i32, @intCast(spatial.grid_size_y))) {
                 
-                const cell = &spatial.spatial_grid[@intCast(check_x)][@intCast(check_y)];
+                const cell = spatial.getGridCellByCoords(@intCast(check_x), @intCast(check_y));
                 
                 // Check all particles in this cell
                 for (0..cell.count) |i| {

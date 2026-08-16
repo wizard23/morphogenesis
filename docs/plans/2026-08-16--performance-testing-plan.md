@@ -2,6 +2,27 @@
 
 *Drafted 2026-08-16 against commit `6cd6947`. Companion to
 [`docs/reports/2026-08-16-app-analysis.md`](../reports/2026-08-16-app-analysis.md).*
+*Status: **READY** (decisions recorded 2026-08-16, see §0a). Milestone 1 = Phases 0, 1, 2, 3, 5, 6.*
+
+## 0a. Decisions (2026-08-16)
+
+| Question | Decision |
+|---|---|
+| Canonical Zig version | **0.16.0**. Update `build.sh` (drop the Homebrew 0.14 path) and README. Goldens keyed by version + optimize mode anyway. |
+| Plain `zig build` mode | Set `preferred_optimize_mode = .ReleaseFast` in `build.zig` so IDE/plain builds match `build.sh`; `-Doptimize=Debug` still available. |
+| Checksum policy | **Self-consistency is the hard failure** (two runs of the same build/scenario must match). **Committed goldens are advisory** — compared and reported, warn-only, regenerated with `--update-goldens` + a note — until physics tuning settles; then promote to hard. |
+| Debug build in the gate | **Yes, correctness only**: run scenarios in Debug for safety-check panics and assert Debug ≡ ReleaseFast checksum; no timing thresholds on Debug. |
+| Timing thresholds | Baseline p95 × **1.25** per scenario/profile; ratchet down after kept wins. |
+| Machine profile of this machine | **fast** (full set incl. S6). |
+| S5-path bugs (stale mouse handle after Reset, dangling stack slices) | **Baseline as-is**; fix afterwards as measured changes (each its own baseline → change → re-measure). Note the caveat in the S5 baseline. |
+| Harness location | `bench/` + scripts in root `package.json`; Tier 1 has no new dependencies (Node ≥ 24 only). |
+| Zig phase clock | **Import `perf_now()` from the host** (script.js and Node harness both supply it). Not phase-split exports. |
+| Arena unit tests in Phase 1 | **Yes** (`zig build test`: spawn/destroy/generation, dense order, checksum self-consistency, `worldToGrid`, valence saturation). |
+| Harness JSON in repo | **Markdown only**; paste tables into progress notes, JSON stays in scratch unless a study needs it. |
+| COOP/COEP on dev server | **Yes** in Phase 3 (5 µs `performance.now()`, `measureUserAgentSpecificMemory`). No cross-origin resources today, so no CORP fallout. |
+| Scenarios | **All seven** (S1–S7) at fixed 1920×1080; S7 gets `set_xpbd_iterations`; S6 fast-profile only. |
+| Extras | **Track ReleaseFast wasm size** as a gate ceiling next to memory ceilings. No pre-push hook, no CI for now. |
+| Milestone split | **M1** = Phases 0, 1, 2, 3, 5, 6 (no browser). **M2** = Phase 4 (browser tier) after the headless-WebGPU spike, plus Phase 7 wiring. |
 
 ## 0. Why this plan looks the way it does — what we take from `asimov-happy`
 
@@ -170,7 +191,8 @@ Ordered so each phase yields a usable artefact; Phase 2 alone already gives the 
 - **Acceptance**: docs exist; `node bench/lib/machine.mjs` prints the header block used by every note.
 
 ### Phase 1 — Zig instrumentation (`src/perf.zig`) (1 day)
-- `build.zig`: `-Dperf=true|false` option → `build_options.perf_enabled`. When false, every hook is a
+- `build.zig`: `preferred_optimize_mode = .ReleaseFast` (decision) and `-Dperf=true|false` option
+  → `build_options.perf_enabled`. Update `build.sh` to Zig 0.16 (drop the Homebrew 0.14 path). When false, every hook is a
   comptime no-op (zero cost in the shipped wasm — mirrors asimov-happy's disabled `phase-trace`).
 - Import `extern fn perf_now() f64` (host supplies `performance.now`/hrtime; stub returns 0 when the
   page doesn't provide it — `script.js` must add it to `env`).
@@ -185,8 +207,11 @@ Ordered so each phase yields a usable artefact; Phase 2 alone already gives the 
   sentinel; `perf_stack_hwm()` scans for the first non-sentinel byte. Zig exposes the stack pointer
   as a global in wasm; if it turns out not to be addressable cleanly, fall back to `@frameAddress()`
   deltas at phase boundaries (coarser, still useful).
-- **Acceptance**: `zig build -Dperf=true` and default build both succeed; Tier 1 spike script reads a
-  non-empty ring; checksum is identical across two runs of S1.
+- Unit tests (`zig build test`, TDD per `docs/principles/determinism.md`): arena
+  spawn/destroy/generation invalidation and dense-order behaviour, checksum self-consistency,
+  `worldToGrid` mapping, valence saturation.
+- **Acceptance**: `zig build -Dperf=true` and default build both succeed; `zig build test` passes;
+  Tier 1 spike script reads a non-empty ring; checksum is identical across two runs of S1.
 
 ### Phase 2 — Tier 1 harness + gate (1–1½ days)
 - `bench/lib/wasm-host.mjs`: load `zig-out/bin/webgpu-demo.wasm` (build first with `-Dperf=true
@@ -196,12 +221,14 @@ Ordered so each phase yields a usable artefact; Phase 2 alone already gives the 
   from Liftoff to TurboFan must finish before measuring — verify by observing ms/step plateau and
   print the warm-up curve once) → `perf_reset` → 3 bursts × 300 steps → percentiles per burst, median
   of bursts, phase averages, counters, checksum. Output: human table + `--json <path>`.
-- `bench/goldens/*.json`: checksums for S1..S6 at fixed step counts, keyed by wasm build mode.
-  Regenerate only via `--update-goldens` and only when a behaviour change is intended (physics
-  change ⇒ new golden, noted in the progress note).
-- `bench/sim-assert.mjs`: thresholds table `{scenario → p95StepMs (per profile), pagesMax,
-  stackHwmMax}` + golden equality. Non-zero exit on failure. Initial thresholds = baseline × 1.25;
-  ratchet down after wins.
+- `bench/goldens/*.json`: checksums for S1..S7 at fixed step counts, keyed by `zig version` +
+  optimize mode. **Advisory** for now (warn on mismatch, never fail); regenerate via
+  `--update-goldens` with a progress note saying why. Promote to hard failure once physics settles.
+- `bench/sim-assert.mjs`: hard failures = (a) **self-consistency**: two runs of the same
+  build/scenario produce identical checksums; (b) **Debug ≡ ReleaseFast** checksum and no Debug
+  panic; (c) p95 `stepMs` ≤ threshold per scenario/profile (ReleaseFast only); (d) memory ceilings:
+  linear-memory pages, stack HWM, **ReleaseFast wasm file size**. Non-zero exit on failure.
+  Initial thresholds = baseline × 1.25; ratchet down after wins.
 - `bench/sim-scaling.mjs`: matrix particles ∈ {933, 2k, 4k, 8k, 10 932} × iterations ∈ {3, 6}
   (fast profile) → table with p50/p95 and phase share; flags super-linear phases.
 - **Acceptance**: `npm run bench:sim:assert` passes on a clean tree in < 60 s (fast) / < 120 s
@@ -264,7 +291,9 @@ Ordered so each phase yields a usable artefact; Phase 2 alone already gives the 
 - Optional: `dev-server.js` prints a reminder when a `.zig` rebuild happens; optional git pre-push
   hook running the Tier 1 gate.
 
-Total: ~6–7 working days for everything; Phases 0–2 (~3 days) already deliver the gate.
+Total: ~6–7 working days for everything; **Milestone 1** (Phases 0, 1, 2, 3, 5, 6 — no browser)
+≈ 4 days and delivers the gate, the in-app ring, and the memory report. **Milestone 2** = Phase 4
+after the headless-WebGPU spike, then Phase 7.
 
 ---
 

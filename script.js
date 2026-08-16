@@ -6,6 +6,12 @@ let time = 0;
 let updateTimeMs = 0;
 const timingDisplay = document.getElementById("timing-display");
 
+// FPS: frames counted per wall-clock window, refreshed every FPS_WINDOW_MS
+const FPS_WINDOW_MS = 500;
+let fpsFrames = 0;
+let fpsWindowStart = 0;
+let fpsValue = 0;
+
 // Mouse interaction state
 let mousePressed = false;
 let mouseX = 0;
@@ -326,6 +332,16 @@ function renderFrame() {
   // Start timing the entire frame
   const frameStart = performance.now();
 
+  // Update FPS estimate (frame interval includes GPU/vsync wait, unlike totalFrameTimeMs)
+  fpsFrames++;
+  if (fpsWindowStart === 0) {
+    fpsWindowStart = frameStart;
+  } else if (frameStart - fpsWindowStart >= FPS_WINDOW_MS) {
+    fpsValue = (fpsFrames * 1000) / (frameStart - fpsWindowStart);
+    fpsFrames = 0;
+    fpsWindowStart = frameStart;
+  }
+
   // Check pause/step state
   const shouldUpdate = !isPaused || stepRequested;
   if (stepRequested) {
@@ -366,7 +382,7 @@ function renderFrame() {
     const aliveParticles = wasmModule.exports.get_alive_particle_count();
     const aliveSprings = wasmModule.exports.get_alive_spring_count();
     
-    statusText = `${Math.round(totalFrameTimeMs)}ms | P:${aliveParticles} S:${aliveSprings} | ${worldW}x${worldH} | ${gridX}x${gridY} | bin:${maxOccupancy}`;
+    statusText = `${fpsValue.toFixed(0)}fps ${Math.round(totalFrameTimeMs)}ms | P:${aliveParticles} S:${aliveSprings} | ${worldW}x${worldH} | ${gridX}x${gridY} | bin:${maxOccupancy}`;
   }
   timingDisplay.textContent = statusText;
 

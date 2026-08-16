@@ -18,3 +18,10 @@ const PARTICLE_SIZE = 0.008; // Physical radius of particles
 ```
 
 This keeps comments descriptive without duplicating values that may change.
+
+## Principles
+
+- **Kaizen** — small, coherent, reviewable steps; no hacks; 0/0/0 hot loop; review standard.
+  See [`docs/principles/kaizen.md`](docs/principles/kaizen.md).
+- **Determinism** — same inputs, same outputs; fixed `dt`, seeded randomness only, state checksum
+  as the oracle for every optimisation. See [`docs/principles/determinism.md`](docs/principles/determinism.md).

@@ -1,6 +1,6 @@
 {
   "fast": {
-    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10). memoryPagesMax 124 since slice 2 (2026-08-17): SoA cells cost 12 B/slot, 24 slots \u00d7 10 000 cells = 2.9 MB (was 2.6 MB before slice 1) \u2014 accepted for the slice 1+2 speedups; p95 ceilings not re-set (busy machine).",
+    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10). memoryPagesMax 124 since slice 2 (2026-08-17): SoA cells cost 12 B/slot, 24 slots \u00d7 10 000 cells = 2.9 MB (was 2.6 MB before slice 1) \u2014 accepted for the slice 1+2 speedups; p95 ceilings not re-set (busy machine). 125 since slice 4: springs_to_remove (87 KB) moved from the stack to static memory (stack HWM 81 -> 0 KB).",
     "_setFrom": {
       "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
       "git": "9e0a61d",
@@ -19,7 +19,7 @@
       "S7[6]": 1.91,
       "S7[12]": 3.749
     },
-    "memoryPagesMax": 124,
+    "memoryPagesMax": 125,
     "stackHwmBytesMax": 91107,
     "wasmBytesMax": 853088
   },

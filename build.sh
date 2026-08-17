@@ -16,11 +16,14 @@ fi
 echo "Using Zig: $($ZIG_CMD version)"
 
 # Build WASM module. PERF=1 compiles in the perf.zig timing ring/counters (bench builds).
+# Release builds are stripped of DWARF (STRIP=0 to keep symbols, e.g. for browser stack traces).
 PERF=${PERF:-0}
-PERF_FLAG=""
-if [ "$PERF" = "1" ]; then PERF_FLAG="-Dperf=true"; fi
-echo "Using optimization level: $OPTIMIZE (perf instrumentation: $PERF)"
-$ZIG_CMD build -Doptimize=$OPTIMIZE $PERF_FLAG
+STRIP=${STRIP:-1}
+FLAGS=""
+if [ "$PERF" = "1" ]; then FLAGS="$FLAGS -Dperf=true"; fi
+if [ "$STRIP" = "1" ] && [ "$OPTIMIZE" != "Debug" ]; then FLAGS="$FLAGS -Dstrip=true"; fi
+echo "Using optimization level: $OPTIMIZE (perf instrumentation: $PERF, strip: $STRIP)"
+$ZIG_CMD build -Doptimize=$OPTIMIZE $FLAGS
 
 # Copy to project root
 cp zig-out/bin/webgpu-demo.wasm .

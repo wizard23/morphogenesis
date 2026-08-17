@@ -63,6 +63,10 @@ pub const Constraint = struct {
     }
 };
 
+/// Springs found overstretched during constraint generation, destroyed after the pass. Static so the
+/// per-iteration frame does not carry a MAX_SPRINGS-sized array (was the last big stack user).
+var springs_to_remove: [MAX_SPRINGS]SpringHandle = undefined;
+
 pub const PhysicsSystem = struct {
     // Direct references to arenas - no callbacks needed
     particle_arena: *main.ParticleArena,
@@ -96,7 +100,6 @@ pub const PhysicsSystem = struct {
         self.constraint_count = 0;
 
         var t0 = perf.now();
-        var springs_to_remove: [MAX_SPRINGS]SpringHandle = undefined;
         var remove_count: u32 = 0;
 
         // Generate distance constraints from springs

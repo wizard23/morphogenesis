@@ -769,9 +769,10 @@ pub export fn set_mouse_interaction(x: f32, y: f32, pressed: bool) void {
     mouse.setMousePressed(pressed);
 }
 
+/// Dense index of the first grabbed particle (matches the order of get_particle_data_bulk), or -1.
 export fn get_mouse_connected_particle() i32 {
     if (mouse.getGrabbedParticle(0)) |handle| {
-        return @intCast(handle.index);
+        if (particle_arena.getDenseIndex(handle)) |dense| return @intCast(dense);
     }
     return -1;
 }

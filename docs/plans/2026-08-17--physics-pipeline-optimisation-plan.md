@@ -1,7 +1,10 @@
 # Plan: physics pipeline optimisation — decisions and slices
 
 *Drafted 2026-08-17 after the first 11 measured steps (`docs/progress/performance/2026/08/`) and the
-measurement-accuracy work (`…T11-30-00Z--measurement-accuracy-repeat-ab-pinning.md`). Status: **READY**.*
+measurement-accuracy work (`…T11-30-00Z--measurement-accuracy-repeat-ab-pinning.md`). Status: **DONE 2026-08-17** — slices 1–6 implemented and committed (one commit per slice, notes in
+`docs/progress/performance/2026/08/2026-08-17T13-00…16-00`). Slice 0 (quiet-machine re-baseline of the p95 ceilings)
+still pending — the machine was busy all day; run `MORPHO_BENCH_PIN=<cpu> npm run bench:sim:assert -- --set-thresholds`
+when idle. Open for the user: the stiffness tuning pass after true XPBD (hand-over in the slice 5 note).*
 
 ## Decisions (2026-08-17)
 

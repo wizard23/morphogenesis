@@ -93,3 +93,11 @@ stack), reset/mouse fix + dangling slices + `u8` refund, constraint slimming; pl
 Cumulative table in `2026-08-17T10-30-00Z--constraint-struct-slimming.md`. Remaining ideas: the
 `springs_to_remove` stack array (87 KB), DWARF stripping for the shipped wasm, `gen_collide` inner-loop
 data layout (still ~65–70 % of the step), XPBD semantics decision (§8.1 #5/#6 in the analysis report).
+
+## Status 2026-08-17 (evening) — physics pipeline plan slices 1–6
+
+S2 default scene **2.99 → 0.50 ms/step** (−83 %), S3 18.3 → 2.6, S4 14.7 → 1.7, S6 66.5 → 6.7 (−90 %);
+render path 0/0/0; shipped wasm 1.8 MB → 54 KB; linear memory 34 → 9.8 MB. Physics semantics changed in
+slice 5 (true XPBD, once-per-step generation) — tuning hand-over in
+`docs/progress/performance/2026/08/2026-08-17T16-00-00Z--slice5-once-per-step-generation-true-xpbd.md`.
+`solve` is now the dominant phase (47–66 %).

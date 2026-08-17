@@ -250,7 +250,7 @@ pub export fn perf_stack_hwm() u32 {
 }
 
 /// Size of the painted probe; a HWM equal to this means "at least this much" (saturated).
-export fn perf_stack_probe_len() u32 {
+pub export fn perf_stack_probe_len() u32 {
     return @intCast(stack_probe_len);
 }
 

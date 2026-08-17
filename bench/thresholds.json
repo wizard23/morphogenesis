@@ -1,88 +1,88 @@
 {
   "fast": {
-    "_note": "p95 ms/step ceilings = baseline × 1.25; ratchet down after kept wins. Memory ceilings are exact + margin.",
+    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10).",
     "_setFrom": {
       "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-      "git": "8692356",
-      "wasmSha": "e3db7bc50828",
-      "time": "2026-08-17T05:05:53.201Z",
+      "git": "9e0a61d",
+      "wasmSha": "d797f3ec2b61",
+      "time": "2026-08-17T07:46:28.409Z",
       "scenarioVersion": 1
     },
     "p95StepMs": {
-      "S1": 2.623,
-      "S2": 2.076,
-      "S3": 11.764,
-      "S4": 14.367,
-      "S5": 2.047,
-      "S7[1]": 0.944,
-      "S7[3]": 1.273,
-      "S7[6]": 2.005,
-      "S7[12]": 3.812
+      "S1": 3.023,
+      "S2": 2.106,
+      "S3": 15.709,
+      "S4": 7.299,
+      "S5": 1.988,
+      "S7[1]": 0.582,
+      "S7[3]": 0.977,
+      "S7[6]": 1.91,
+      "S7[12]": 3.749
     },
-    "memoryPagesMax": 253,
-    "stackHwmBytesMax": 475913,
-    "wasmBytesMax": 1902292
+    "memoryPagesMax": 119,
+    "stackHwmBytesMax": 91107,
+    "wasmBytesMax": 853088
   },
   "browser": {
     "swiftshader": {
-      "_note": "APP alloc B/s and DOM mutations/frame ceilings = first run × 1.25; ratchet toward 0 after kept wins.",
+      "_note": "APP alloc bytes/frame and DOM mutations/frame ceilings = first run \u00d7 1.25; ratchet toward 0 after kept wins.",
       "_setFrom": {
         "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-        "git": "3352ea3",
+        "git": "9e0a61d",
         "adapter": "google/swiftshader",
-        "time": "2026-08-17T03:41:56.749Z"
+        "time": "2026-08-17T07:54:03.558Z"
       },
       "phases": {
         "idle-paused": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.26
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0
         },
         "steady": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.31
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.28
         },
         "drag": {
-          "appBytesPerSecMax": 21576,
-          "domMutationsPerFrameMax": 1.27
+          "appBytesPerFrameMax": 1255,
+          "domMutationsPerFrameMax": 0.31
         },
         "paint": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.27
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.31
         },
         "reset-storm": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.28
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.3
         }
       }
     },
     "gpu": {
-      "_note": "APP alloc B/s and DOM mutations/frame ceilings = first run × 1.25; ratchet toward 0 after kept wins.",
+      "_note": "APP alloc bytes/frame and DOM mutations/frame ceilings = first run \u00d7 1.25; ratchet toward 0 after kept wins.",
       "_setFrom": {
         "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-        "git": "3352ea3",
+        "git": "9e0a61d",
         "adapter": "amd/gcn-5",
-        "time": "2026-08-17T03:42:18.478Z"
+        "time": "2026-08-17T07:53:44.814Z"
       },
       "phases": {
         "idle-paused": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 5.15
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0
         },
         "steady": {
-          "appBytesPerSecMax": 12805,
-          "domMutationsPerFrameMax": 1.88
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.02
         },
         "drag": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.48
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.03
         },
         "paint": {
-          "appBytesPerSecMax": 26793,
-          "domMutationsPerFrameMax": 1.41
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.03
         },
         "reset-storm": {
-          "appBytesPerSecMax": 0,
-          "domMutationsPerFrameMax": 1.34
+          "appBytesPerFrameMax": 8,
+          "domMutationsPerFrameMax": 0.02
         }
       }
     }

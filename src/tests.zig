@@ -11,7 +11,8 @@ const Item = struct { v: u32 };
 const SmallArena = generational.GenerationalArena(Item, 4);
 
 test "arena: spawn returns valid handle and get sees the data" {
-    var arena = SmallArena.init();
+    var arena: SmallArena = undefined;
+    arena.init();
     const h = arena.spawn(.{ .v = 7 });
     try testing.expect(h.isValid());
     try testing.expectEqual(@as(u32, 1), arena.getAliveCount());
@@ -19,7 +20,8 @@ test "arena: spawn returns valid handle and get sees the data" {
 }
 
 test "arena: destroy invalidates handle; slot reuse bumps generation" {
-    var arena = SmallArena.init();
+    var arena: SmallArena = undefined;
+    arena.init();
     const h1 = arena.spawn(.{ .v = 1 });
     arena.destroy(h1);
     try testing.expect(arena.get(h1) == null);
@@ -35,13 +37,15 @@ test "arena: destroy invalidates handle; slot reuse bumps generation" {
 }
 
 test "arena: capacity exhaustion returns invalid handle" {
-    var arena = SmallArena.init();
+    var arena: SmallArena = undefined;
+    arena.init();
     for (0..4) |i| try testing.expect(arena.spawn(.{ .v = @intCast(i) }).isValid());
     try testing.expect(!arena.spawn(.{ .v = 99 }).isValid());
 }
 
 test "arena: dense order is swap-remove (order-sensitive but deterministic)" {
-    var arena = SmallArena.init();
+    var arena: SmallArena = undefined;
+    arena.init();
     const a = arena.spawn(.{ .v = 10 });
     const b = arena.spawn(.{ .v = 20 });
     const c = arena.spawn(.{ .v = 30 });
@@ -147,10 +151,41 @@ test "valence refund saturates at 0 when a mouse spring breaks (Debug safety)" {
     main.set_mouse_interaction(0, 0, false);
 }
 
-test "perf: stack high-water mark reports use below the reset frame" {
+test "bonds: no two alive springs connect the same pair, and valence counts match springs" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    // a lattice of unsatisfied valence-6 particles bonds heavily
+    for (0..40) |r| for (0..40) |c| main.add_particle(@as(f32, @floatFromInt(c)) * 15.5 - 300, @as(f32, @floatFromInt(r)) * 15.5 - 300, 6);
+    for (0..120) |_| main.update_particles(0.016);
+    const n = main.getDenseSpringCount();
+    var i: u32 = 0;
+    while (i < n) : (i += 1) {
+        const a = main.getDenseSpringAt(i);
+        var j: u32 = i + 1;
+        while (j < n) : (j += 1) {
+            const b = main.getDenseSpringAt(j);
+            const same = (a.particle_a.eql(b.particle_a) and a.particle_b.eql(b.particle_b)) or (a.particle_a.eql(b.particle_b) and a.particle_b.eql(b.particle_a));
+            try testing.expect(!same);
+        }
+    }
+    try testing.expect(n > 1000);
+}
+
+noinline fn burnStack(depth: u32) u32 {
+    var buf: [16 * 1024]u8 = undefined;
+    @memset(&buf, @intCast(depth & 0xff));
+    std.mem.doNotOptimizeAway(&buf);
+    if (depth == 0) return buf[0];
+    return burnStack(depth - 1) + buf[1];
+}
+
+test "perf: stack high-water mark sees deep stack use below the reset frame" {
     perf.perf_reset();
-    // update_particles has large stack temporaries (see analysis report)
-    main.update_particles(0.016);
+    _ = burnStack(8); // ~9 × 16 KB touched below the reset frame (top frame overlaps the 4 KB paint margin)
     const hwm = perf.perf_stack_hwm();
-    try testing.expect(hwm > 0);
+    try testing.expect(hwm >= 8 * 16 * 1024);
+    // and after a fresh reset the probe is clean again (steps of the default scene fit in the margin)
+    perf.perf_reset();
+    try testing.expectEqual(@as(u32, 0), perf.perf_stack_hwm());
 }

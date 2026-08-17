@@ -40,6 +40,23 @@ class MorphogenesisRenderer {
     // WASM constants (fetched from Zig)
     this.worldSize = 1.95;
     this.gridSize = 25;
+    this.worldWidth = 0;
+    this.worldHeight = 0;
+    // World dims the grid lines / uniforms were last built for (rebuild only on change)
+    this.gridBuiltForWidth = -1;
+    this.gridBuiltForHeight = -1;
+    this.gridLinesArray = null;
+
+    // Cached views into WASM memory for the bulk buffers (recreated only if buffer/ptr/length change)
+    this.particleView = null;
+    this.springView = null;
+    // Render pass descriptor reused every frame (view swapped in place)
+    this.colorAttachment = { view: null, clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 }, loadOp: "clear", storeOp: "store" };
+    this.renderPassDescriptor = { colorAttachments: [this.colorAttachment] };
+    // Last frame's counts, read by render() (no per-frame result object)
+    this.lastParticleCount = 0;
+    this.lastSpringCount = 0;
+    this.lastHasMouseSpring = false;
     
     // Cached data for performance
     this.cachedParticleData = null;
@@ -102,16 +119,10 @@ class MorphogenesisRenderer {
     this.log(`Constants from WASM: world=${this.worldSize}, grid=${this.gridSize}, particles=${this.maxParticles}, springs=${this.maxSprings}, particleSize=${this.particleSize}`);
   }
   
-  getCurrentWorldDimensions(wasmModule) {
-    // Get current world dimensions (may have changed due to aspect ratio)
-    if (wasmModule.exports.get_world_width && wasmModule.exports.get_world_height) {
-      return {
-        width: wasmModule.exports.get_world_width(),
-        height: wasmModule.exports.get_world_height()
-      };
-    }
-    // Fallback to square world
-    return { width: this.worldSize, height: this.worldSize };
+  // Current world dimensions (CSS px). Written into this.worldWidth/worldHeight — no per-frame object.
+  readWorldDimensions(wasmModule) {
+    this.worldWidth = wasmModule.exports.get_world_width();
+    this.worldHeight = wasmModule.exports.get_world_height();
   }
 
   createShaders() {
@@ -518,128 +529,109 @@ class MorphogenesisRenderer {
     return true;
   }
 
-  updateGridLines(wasmModule) {
-    // Generate grid lines in world space coordinates
-    const worldDims = this.getCurrentWorldDimensions(wasmModule);
-    const worldHalfX = worldDims.width / 2.0;
-    const worldHalfY = worldDims.height / 2.0;
-    
+  // Grid lines + uniforms depend only on world dimensions: rebuild when they change, not per frame.
+  updateGridLinesAndUniforms(wasmModule) {
+    this.readWorldDimensions(wasmModule);
+    if (this.worldWidth === this.gridBuiltForWidth && this.worldHeight === this.gridBuiltForHeight) return;
+    this.gridBuiltForWidth = this.worldWidth;
+    this.gridBuiltForHeight = this.worldHeight;
+
+    const worldHalfX = this.worldWidth / 2.0;
+    const worldHalfY = this.worldHeight / 2.0;
     const totalGridLines = (this.gridSize + 1) * 2;
-    const gridLinesArray = new Float32Array(totalGridLines * 4);
+    if (!this.gridLinesArray || this.gridLinesArray.length !== totalGridLines * 4) {
+      this.gridLinesArray = new Float32Array(totalGridLines * 4);
+    }
+    const gridLinesArray = this.gridLinesArray;
     let gridIndex = 0;
-    
+
     // Vertical lines (full height of world space)
     for (let i = 0; i <= this.gridSize; i++) {
-      const x = (i / this.gridSize) * worldDims.width - worldHalfX;
+      const x = (i / this.gridSize) * this.worldWidth - worldHalfX;
       gridLinesArray[gridIndex++] = x;
-      gridLinesArray[gridIndex++] = -worldHalfY; // Bottom of world space
+      gridLinesArray[gridIndex++] = -worldHalfY;
       gridLinesArray[gridIndex++] = x;
-      gridLinesArray[gridIndex++] = worldHalfY;  // Top of world space
+      gridLinesArray[gridIndex++] = worldHalfY;
     }
-    
+
     // Horizontal lines (full width of world space)
     for (let i = 0; i <= this.gridSize; i++) {
-      const y = (i / this.gridSize) * worldDims.height - worldHalfY;
+      const y = (i / this.gridSize) * this.worldHeight - worldHalfY;
       gridLinesArray[gridIndex++] = -worldHalfX;
       gridLinesArray[gridIndex++] = y;
       gridLinesArray[gridIndex++] = worldHalfX;
       gridLinesArray[gridIndex++] = y;
     }
-    
+
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridLinesArray);
     this.gridLinesCount = totalGridLines;
+
+    this.uniformsBuffer[0] = this.particleSize;
+    this.uniformsBuffer[1] = this.worldWidth;
+    this.uniformsBuffer[2] = this.worldHeight;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformsBuffer);
+  }
+
+  // Float32Array view over WASM memory, reused while buffer identity, pointer and length are unchanged.
+  wasmView(cached, memory, ptr, length) {
+    if (cached && cached.buffer === memory.buffer && cached.byteOffset === ptr && cached.length === length) return cached;
+    return new Float32Array(memory.buffer, ptr, length);
   }
 
   updateData(wasmModule) {
-    // Update grid lines to match current world dimensions
-    this.updateGridLines(wasmModule);
-    
-    // Update uniforms (particle size and world dimensions)
-    const worldDims = this.getCurrentWorldDimensions(wasmModule);
-    this.uniformsBuffer[0] = this.particleSize;
-    this.uniformsBuffer[1] = worldDims.width;
-    this.uniformsBuffer[2] = worldDims.height;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformsBuffer);
+    this.updateGridLinesAndUniforms(wasmModule);
+    const memory = wasmModule.exports.memory;
 
-    // BULK DATA TRANSFER: Get all particle data at once
+    // BULK DATA TRANSFER: particles — a view straight into WASM memory, one writeBuffer
     const particleCount = wasmModule.exports.get_bulk_particle_count();
     if (particleCount > 0) {
-      // Get direct pointer to WASM memory buffer - no copying in JS!
       const particleDataPtr = wasmModule.exports.get_particle_data_bulk();
-      const particleDataView = new Float32Array(
-        wasmModule.exports.memory.buffer,
-        particleDataPtr,
-        particleCount * 4
-      );
-      
-      // Direct upload to GPU - single memcpy instead of thousands of function calls
-      this.device.queue.writeBuffer(this.instanceBuffer, 0, particleDataView);
-      
-      // Store reference for mouse spring lookup
-      this.cachedParticleData = particleDataView;
+      this.particleView = this.wasmView(this.particleView, memory, particleDataPtr, particleCount * 4);
+      this.device.queue.writeBuffer(this.instanceBuffer, 0, this.particleView);
+      this.cachedParticleData = this.particleView;
     }
 
-    // BULK DATA TRANSFER: Get all spring data at once
+    // BULK DATA TRANSFER: springs
     const springCount = wasmModule.exports.get_bulk_spring_count();
     if (springCount > 0) {
-      // Get direct pointer to WASM memory buffer - no copying in JS!
       const springDataPtr = wasmModule.exports.get_spring_data_bulk();
-      const springDataView = new Float32Array(
-        wasmModule.exports.memory.buffer,
-        springDataPtr,
-        springCount * 4
-      );
-      
-      // Direct upload to GPU - single memcpy instead of loop
-      this.device.queue.writeBuffer(this.springVertexBuffer, 0, springDataView);
+      this.springView = this.wasmView(this.springView, memory, springDataPtr, springCount * 4);
+      this.device.queue.writeBuffer(this.springVertexBuffer, 0, this.springView);
     }
 
-    // Get mouse spring data if exists (this is minimal, so keep individual calls)
+    // Mouse spring line (minimal; individual calls)
     let hasMouseSpring = false;
     if (wasmModule.exports.get_mouse_connected_particle) {
       const mouseParticle = wasmModule.exports.get_mouse_connected_particle();
       if (mouseParticle >= 0 && this.cachedParticleData) {
         const mouseX = wasmModule.exports.get_mouse_position_x();
         const mouseY = wasmModule.exports.get_mouse_position_y();
-        
-        // Get connected particle position from cached data
-        const particleX = this.cachedParticleData[mouseParticle * 4];
-        const particleY = this.cachedParticleData[mouseParticle * 4 + 1];
-        
-        // Create mouse spring line
-        this.mouseSpringVerticesBuffer[0] = particleX;
-        this.mouseSpringVerticesBuffer[1] = particleY;
+        this.mouseSpringVerticesBuffer[0] = this.cachedParticleData[mouseParticle * 4];
+        this.mouseSpringVerticesBuffer[1] = this.cachedParticleData[mouseParticle * 4 + 1];
         this.mouseSpringVerticesBuffer[2] = mouseX;
         this.mouseSpringVerticesBuffer[3] = mouseY;
-        
         this.device.queue.writeBuffer(this.mouseSpringVertexBuffer, 0, this.mouseSpringVerticesBuffer);
         hasMouseSpring = true;
       }
     }
 
-    return { particleCount, springCount, hasMouseSpring };
+    this.lastParticleCount = particleCount;
+    this.lastSpringCount = springCount;
+    this.lastHasMouseSpring = hasMouseSpring;
   }
 
   render(wasmModule) {
     const uploadStart = performance.now();
-    const { particleCount, springCount, hasMouseSpring } = this.updateData(wasmModule);
+    this.updateData(wasmModule);
+    const particleCount = this.lastParticleCount, springCount = this.lastSpringCount, hasMouseSpring = this.lastHasMouseSpring;
     const submitStart = performance.now();
     this.lastUploadMs = submitStart - uploadStart;
 
     try {
       const commandEncoder = this.device.createCommandEncoder();
-      const textureView = this.context.getCurrentTexture().createView();
-
-      const renderPassDescriptor = {
-        colorAttachments: [{
-          view: textureView,
-          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-          loadOp: "clear",
-          storeOp: "store",
-        }],
-      };
-
-      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+      // Reused descriptor; only the swap-chain view changes per frame
+      this.colorAttachment.view = this.context.getCurrentTexture().createView();
+      const passEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
       
       // Draw spatial grid
       passEncoder.setPipeline(this.gridRenderPipeline);

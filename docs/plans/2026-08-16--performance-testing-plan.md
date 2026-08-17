@@ -6,8 +6,8 @@
 (`docs/progress/performance/2026/08/2026-08-16T18-28-00Z--initial-tier1-baseline.md`,
 `docs/perf/2026-08-16--tier1-baseline-report.md`); Milestone 2 (Phase 4 browser tier + Phase 7 wiring) on 2026-08-17
 (`docs/progress/performance/2026/08/2026-08-17T03-40-00Z--initial-tier2-browser-baseline.md`).
-Deviations from the plan as written are listed in §0b. What remains is the optimisation work itself,
-each step through the measured loop (`docs/HOWTO-performance.md`).*
+Deviations from the plan as written are listed in §0b. The optimisation loop has run 11 measured steps
+(2026-08-17, notes in `docs/progress/performance/2026/08/`); the ranked follow-ups of the baseline report are done.*
 
 ## 0b. Implementation notes / deviations (2026-08-16)
 

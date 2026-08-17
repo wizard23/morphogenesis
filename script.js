@@ -6,6 +6,11 @@ let time = 0;
 let updateTimeMs = 0;
 const timingDisplay = document.getElementById("timing-display");
 
+// Status line refresh cadence and last written text (skip unchanged writes)
+const STATUS_INTERVAL_MS = 250;
+let statusNextUpdateAt = 0;
+let lastStatusText = "";
+
 // FPS: frames counted per wall-clock window, refreshed every FPS_WINDOW_MS
 const FPS_WINDOW_MS = 500;
 let fpsFrames = 0;
@@ -390,22 +395,29 @@ function renderFrame() {
   timingRingHead = (timingRingHead + 1) % TIMING_RING_FRAMES;
   if (timingRingCount < TIMING_RING_FRAMES) timingRingCount++;
 // console.log(totalFrameTimeMs);
-  // Update timing display with detailed breakdown
-  let statusText;
-  if (isPaused) {
-    statusText = "PAUSED";
-  } else {
-    const maxOccupancy = wasmModule.exports.get_spatial_max_occupancy();
-    const gridX = wasmModule.exports.get_grid_dimensions_x();
-    const gridY = wasmModule.exports.get_grid_dimensions_y();
-    const worldW = Math.round(wasmModule.exports.get_world_width_debug());
-    const worldH = Math.round(wasmModule.exports.get_world_height_debug());
-    const aliveParticles = wasmModule.exports.get_alive_particle_count();
-    const aliveSprings = wasmModule.exports.get_alive_spring_count();
-    
-    statusText = `${fpsValue.toFixed(0)}fps ${Math.round(totalFrameTimeMs)}ms | P:${aliveParticles} S:${aliveSprings} | ${worldW}x${worldH} | ${gridX}x${gridY} | bin:${maxOccupancy}`;
+  // Status line: at most STATUS_INTERVAL_MS apart and only when the text changed (0/0/0 rule:
+  // a per-frame template string + textContent write was the whole JS allocation / DOM budget).
+  if (frameStart >= statusNextUpdateAt) {
+    statusNextUpdateAt = frameStart + STATUS_INTERVAL_MS;
+    let statusText;
+    if (isPaused) {
+      statusText = "PAUSED";
+    } else {
+      const maxOccupancy = wasmModule.exports.get_spatial_max_occupancy();
+      const gridX = wasmModule.exports.get_grid_dimensions_x();
+      const gridY = wasmModule.exports.get_grid_dimensions_y();
+      const worldW = Math.round(wasmModule.exports.get_world_width_debug());
+      const worldH = Math.round(wasmModule.exports.get_world_height_debug());
+      const aliveParticles = wasmModule.exports.get_alive_particle_count();
+      const aliveSprings = wasmModule.exports.get_alive_spring_count();
+
+      statusText = `${fpsValue.toFixed(0)}fps ${Math.round(totalFrameTimeMs)}ms | P:${aliveParticles} S:${aliveSprings} | ${worldW}x${worldH} | ${gridX}x${gridY} | bin:${maxOccupancy}`;
+    }
+    if (statusText !== lastStatusText) {
+      lastStatusText = statusText;
+      timingDisplay.textContent = statusText;
+    }
   }
-  timingDisplay.textContent = statusText;
 
   // Continue animation
   animationId = requestAnimationFrame(renderFrame);

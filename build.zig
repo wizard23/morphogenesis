@@ -33,11 +33,6 @@ pub fn build(b: *std.Build) void {
     // No entry point for WASM library
     exe.entry = .disabled;
 
-    // Shadow-stack size (default 1 MiB, stack-first layout). Debug builds trap at init with the
-    // default: ParticleArena.init() returns a ~570 KB struct by value and generateConstraints has
-    // ~530 KB of temporaries. 4 MiB is headroom until those copies are removed (measured work).
-    exe.stack_size = 4 * 1024 * 1024;
-
     // Export functions for WebAssembly
     exe.rdynamic = true;
 

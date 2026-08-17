@@ -80,3 +80,16 @@ Readings:
 
 Not worth doing for speed: `gen_grid` copy removal (1–3 %) — do it for stack/memory reasons under
 item 3 if at all.
+
+
+---
+
+## Status 2026-08-17
+
+All five ranked follow-ups above have been executed as measured steps (see
+`docs/progress/performance/2026/08/2026-08-17T*`): collision scan (hoists + 30 px bins), bond search
+via grid + connection table, in-place arena init (1 MB data segment gone, Debug runs on the default
+stack), reset/mouse fix + dangling slices + `u8` refund, constraint slimming; plus render-path 0/0/0.
+Cumulative table in `2026-08-17T10-30-00Z--constraint-struct-slimming.md`. Remaining ideas: the
+`springs_to_remove` stack array (87 KB), DWARF stripping for the shipped wasm, `gen_collide` inner-loop
+data layout (still ~65–70 % of the step), XPBD semantics decision (§8.1 #5/#6 in the analysis report).

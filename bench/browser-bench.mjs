@@ -47,14 +47,17 @@ export async function runBrowserBench({ quiet = false } = {}) {
     await page.waitForTimeout(500);
 
     const sleep = (ms) => page.waitForTimeout(ms);
+    // Phase state changes (pause, reset, settle) run in an unsampled setup step so the sampled window
+    // holds steady-state behaviour only.
+    const SETUP = {
+      "idle-paused": () => page.evaluate(() => window.__morphoBench.setPaused(true)),
+      "steady": () => page.evaluate(() => { const b = window.__morphoBench; b.setPaused(true); b.reset(); b.stepBurst(600); b.setPaused(false); }),
+    };
     for (const ph of PHASES) {
       const r = await measurePhase(page, cdp, ph.name, ph.ms, async () => {
-        const b = "window.__morphoBench";
         switch (ph.name) {
           case "idle-paused":
-            await page.evaluate(() => window.__morphoBench.setPaused(true)); await sleep(ph.ms); break;
           case "steady":
-            await page.evaluate(() => { const b = window.__morphoBench; b.setPaused(true); b.reset(); b.stepBurst(600); b.setPaused(false); });
             await sleep(ph.ms); break;
           case "drag":
             await page.evaluate((ms) => { const b = window.__morphoBench; let t = 0; b.mouse(-200, -200, true);
@@ -72,7 +75,7 @@ export async function runBrowserBench({ quiet = false } = {}) {
             await sleep(300);
             break;
         }
-      });
+      }, SETUP[ph.name]);
       r.desc = ph.desc;
       results.push(r);
       if (!quiet) console.log(`  ${ph.name.padEnd(12)} frames ${String(r.ring.frames).padStart(3)}  sim p50 ${fmtMs(r.ring.simMs.p50)}  upload ${fmtMs(r.ring.uploadMs.p50)}  submit ${fmtMs(r.ring.submitMs.p50)}  fps ${r.ring.fps.toFixed(0)}  APP alloc ${(r.heap.appBytesPerSec / 1024).toFixed(1)} KB/s  dom ${r.probes.domMutations}  grabs ${r.snap.grabs}`);
@@ -86,8 +89,11 @@ export async function runBrowserBench({ quiet = false } = {}) {
 }
 
 export function printBrowserResults(run) {
-  const h = ["phase", "frames", "fps", "sim p50", "sim p95", "upload p50", "submit p50", "frame p95", "APP KB/s", "runtime KB/s", "DOM mut", "P", "S", "grabs"];
-  const rows = run.results.map((r) => [r.name, r.ring.frames, r.ring.fps.toFixed(0), fmtMs(r.ring.simMs.p50), fmtMs(r.ring.simMs.p95), fmtMs(r.ring.uploadMs.p50), fmtMs(r.ring.submitMs.p50), fmtMs(r.ring.frameIntervalMs.p95), (r.heap.appBytesPerSec / 1024).toFixed(1), (r.heap.runtimeBytesPerSec / 1024).toFixed(1), r.probes.domMutations, r.snap.particles, r.snap.springs, r.snap.grabs]);
+  const h = ["phase", "frames", "fps", "sim p50", "sim p95", "upload p50", "submit p50", "frame p95", "APP KB/s", "APP B/frame", "runtime KB/s", "DOM mut", "DOM/frame", "P", "S", "grabs"];
+  const rows = run.results.map((r) => {
+    const framesInWindow = Math.max(1, (r.durationMs / 1000) * (r.ring.fps || 0), r.ring.frames);
+    return [r.name, r.ring.frames, r.ring.fps.toFixed(0), fmtMs(r.ring.simMs.p50), fmtMs(r.ring.simMs.p95), fmtMs(r.ring.uploadMs.p50), fmtMs(r.ring.submitMs.p50), fmtMs(r.ring.frameIntervalMs.p95), (r.heap.appBytesPerSec / 1024).toFixed(1), (r.heap.appBytes / framesInWindow).toFixed(0), (r.heap.runtimeBytesPerSec / 1024).toFixed(1), r.probes.domMutations, (r.probes.domMutations / framesInWindow).toFixed(2), r.snap.particles, r.snap.springs, r.snap.grabs];
+  });
   console.log("\n== phases ==");
   console.log(padTable([h, ...rows], h.map((_, i) => (i ? "right" : "left"))).join("\n"));
   for (const r of run.results) {

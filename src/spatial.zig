@@ -120,14 +120,14 @@ pub fn clearGrid() void {
     }
 }
 
-pub fn populateGrid(particles: anytype, particle_count: u32) void {
+/// Populate directly from the particle arena's dense storage (no intermediate copy).
+pub fn populateGridArena(arena: *main_module.ParticleArena) void {
     clearGrid();
-    for (0..particle_count) |i| {
-        const particle = &particles[i];
+    const count = arena.getDenseCount();
+    for (0..count) |i| {
+        const particle = arena.getDataAt(@intCast(i));
         const cell = getGridCell(particle.x, particle.y);
         cell.add(@intCast(i));
-
-        // Track maximum occupancy
         if (cell.count > max_occupancy) {
             max_occupancy = cell.count;
         }

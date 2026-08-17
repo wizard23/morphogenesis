@@ -55,7 +55,7 @@ const staticEstimates = [
   ["particle_connections (6 × 4 B) + counts", PARTICLE_COUNT * 25],
   ["bulk buffers (particles 16 B + springs 16 B)", PARTICLE_COUNT * 16 + MAX_SPRINGS * 16],
   ["perf ring (512 × 8 × 4 B)", 512 * 8 * 4],
-  ["shadow stack (build.zig stack_size)", 4 * 1024 * 1024],
+  ["shadow stack (default 1 MiB, stack-first)", 1024 * 1024],
 ];
 
 // ---- runtime: pages + stack HWM per scenario ------------------------------------------------------

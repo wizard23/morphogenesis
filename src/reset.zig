@@ -87,19 +87,5 @@ pub fn initializeFreeAgents() void {
 
 // Initialize spring system (no pre-made connections, valence system handles bonding)
 pub fn initializeSprings() void {
-    // Initialize connection lookup table
-    for (0..PARTICLE_COUNT) |i| {
-        main.setParticleConnectionCount(@intCast(i), 0);
-    }
-
-    // log("Springs system initialized - valence system will handle bond formation");
-}
-
-// Helper function to add a spring connection to a particle's lookup table
-pub fn addParticleConnection(particle_index: u32, spring_handle: main.SpringHandle) void {
-    const count = main.getParticleConnectionCount(particle_index);
-    if (count < MAX_CONNECTIONS_PER_PARTICLE) {
-        main.setParticleConnection(particle_index, count, spring_handle);
-        main.setParticleConnectionCount(particle_index, count + 1);
-    }
+    main.clearConnectionTable();
 }

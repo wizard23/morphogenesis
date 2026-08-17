@@ -46,24 +46,16 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
         free_indices: [capacity]u16,
         free_count: u32,
 
-        pub fn init() Self {
-            var self = Self{
-                .entries = undefined,
-                .count = 0,
-                .sparse_to_dense = undefined,
-                .generations = undefined,
-                .free_indices = undefined,
-                .free_count = capacity,
-            };
-
-            // Initialize free list and generations
+        /// (Re)initialise in place. By-value construction of a ~0.5 MB struct materialised a template
+        /// in the wasm data segment and copied it through the stack (measured 2026-08-17).
+        pub fn init(self: *Self) void {
+            self.count = 0;
+            self.free_count = capacity;
             for (0..capacity) |i| {
                 self.free_indices[i] = @intCast(i);
                 self.sparse_to_dense[i] = 0xFFFFFFFF;
                 self.generations[i] = 0;
             }
-
-            return self;
         }
 
         pub fn spawn(self: *Self, data: T) Handle {
@@ -152,13 +144,6 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
             return dense_index;
         }
 
-        pub fn fillDenseArray(self: *Self, out_array: []T) void {
-            // Copy dense data into provided array
-            for (0..@min(self.count, out_array.len)) |i| {
-                out_array[i] = self.entries[i].data;
-            }
-        }
-        
         pub fn getDataAt(self: *Self, index: u32) *T {
             return &self.entries[index].data;
         }

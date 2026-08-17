@@ -187,11 +187,11 @@ var physics_system: physics.PhysicsSystem = undefined;
 var device_handle: u32 = 0;
 
 fn initializeParticleSystems() void {
-    particle_arena = ParticleArena.init();
+    particle_arena.init();
 }
 
 fn initializeSpringSystems() void {
-    spring_arena = SpringArena.init();
+    spring_arena.init();
 }
 
 fn initializePhysicsSystem() void {
@@ -350,72 +350,101 @@ pub fn getAliveParticleCount() u32 {
     return particle_arena.getAliveCount();
 }
 
-pub fn getParticleConnectionCount(particle_index: u32) u8 {
-    return particle_connection_counts[particle_index];
+pub fn clearConnectionTable() void {
+    @memset(&particle_connection_counts, 0);
 }
 
-pub fn setParticleConnectionCount(particle_index: u32, count: u8) void {
+/// Drop dead spring handles from a particle's connection table (springs destroyed for overstretch
+/// are not removed eagerly). Returns the live count.
+fn compactConnections(particle_index: u32) u8 {
+    var count = particle_connection_counts[particle_index];
+    var k: u8 = 0;
+    while (k < count) {
+        if (spring_arena.get(particle_connections[particle_index][k]) != null) {
+            k += 1;
+        } else {
+            count -= 1;
+            particle_connections[particle_index][k] = particle_connections[particle_index][count];
+        }
+    }
     particle_connection_counts[particle_index] = count;
+    return count;
 }
 
-pub fn setParticleConnection(particle_index: u32, connection_index: u8, spring_handle: SpringHandle) void {
-    particle_connections[particle_index][connection_index] = spring_handle;
+/// Is there a live spring between a and b? Checks a's connection table (compacting it).
+fn isConnected(a: ParticleHandle, b: ParticleHandle) bool {
+    const count = compactConnections(a.index);
+    for (0..count) |k| {
+        const spring = spring_arena.get(particle_connections[a.index][k]) orelse continue;
+        if ((spring.particle_a.eql(a) and spring.particle_b.eql(b)) or
+            (spring.particle_a.eql(b) and spring.particle_b.eql(a))) return true;
+    }
+    return false;
 }
 
+fn recordConnection(particle_index: u32, spring_handle: SpringHandle) void {
+    var count = particle_connection_counts[particle_index];
+    if (count >= MAX_CONNECTIONS_PER_PARTICLE) count = compactConnections(particle_index);
+    if (count < MAX_CONNECTIONS_PER_PARTICLE) {
+        particle_connections[particle_index][count] = spring_handle;
+        particle_connection_counts[particle_index] = count + 1;
+    }
+}
+
+/// Form valence bonds between unsatisfied particles at ~rest length. Candidates come from the
+/// spatial grid (populated here from current positions); a pair is considered once, owned by the
+/// lower dense index. Visit order: dense order of the owner, then the 3×3 cells (dy, dx ascending),
+/// then cell insertion (dense) order — deterministic, see docs/principles/determinism.md.
 fn updateValenceBonds() void {
+    spatial.populateGridArena(&particle_arena);
     const dense_particle_count = particle_arena.getDenseCount();
+    const min_bond_distance_sq = (SPRING_REST_LENGTH * 0.9) * (SPRING_REST_LENGTH * 0.9);
+    const max_bond_distance_sq = (SPRING_REST_LENGTH * 1.1) * (SPRING_REST_LENGTH * 1.1);
 
     for (0..dense_particle_count) |i| {
-        const handle_a = particle_arena.getHandleAt(@intCast(i));
         const particle_a = particle_arena.getDataAt(@intCast(i));
-
         if (particle_a.current_valence >= particle_a.desired_valence) continue;
-        // todo use neighbors
+        const handle_a = particle_arena.getHandleAt(@intCast(i));
 
-        for ((i + 1)..dense_particle_count) |j| {
-            const handle_b = particle_arena.getHandleAt(@intCast(j));
-            const particle_b = particle_arena.getDataAt(@intCast(j));
+        const gx = spatial.worldToGridX(particle_a.x);
+        const gy = spatial.worldToGridY(particle_a.y);
 
-            if (particle_b.current_valence >= particle_b.desired_valence) continue;
+        var dy: i32 = -1;
+        outer: while (dy <= 1) : (dy += 1) {
+            var dx: i32 = -1;
+            while (dx <= 1) : (dx += 1) {
+                const cx = gx + dx;
+                const cy = gy + dy;
+                if (cx < 0 or cy < 0 or cx >= @as(i32, @intCast(spatial.grid_size_x)) or cy >= @as(i32, @intCast(spatial.grid_size_y))) continue;
+                const cell = spatial.getGridCellByCoords(@intCast(cx), @intCast(cy));
 
-            const dx = particle_b.x - particle_a.x;
-            const dy = particle_b.y - particle_a.y;
-            const distance = @sqrt(dx * dx + dy * dy);
+                for (0..cell.count) |k| {
+                    const j = cell.particles[k];
+                    if (j <= i) continue;
+                    const particle_b = particle_arena.getDataAt(j);
+                    if (particle_b.current_valence >= particle_b.desired_valence) continue;
 
-            const min_bond_distance = SPRING_REST_LENGTH * 0.9;
-            const max_bond_distance = SPRING_REST_LENGTH * 1.1;
+                    const ddx = particle_b.x - particle_a.x;
+                    const ddy = particle_b.y - particle_a.y;
+                    const distance_sq = ddx * ddx + ddy * ddy;
+                    if (distance_sq < min_bond_distance_sq or distance_sq > max_bond_distance_sq) continue;
 
-            if (distance >= min_bond_distance and distance <= max_bond_distance) {
-                var already_connected = false;
-                const spring_count = spring_arena.getDenseCount();
+                    const handle_b = particle_arena.getHandleAt(j);
+                    if (isConnected(handle_a, handle_b)) continue;
+                    if (spring_arena.getAliveCount() >= MAX_SPRINGS) return;
 
-                for (0..spring_count) |s| {
-                    const spring = spring_arena.getDataAt(@intCast(s));
-                    if ((spring.particle_a.eql(handle_a) and spring.particle_b.eql(handle_b)) or
-                        (spring.particle_a.eql(handle_b) and spring.particle_b.eql(handle_a)))
-                    {
-                        already_connected = true;
-                        break;
-                    }
-                }
-
-                if (!already_connected and spring_arena.getAliveCount() < MAX_SPRINGS) {
-                    const new_spring = Spring{
+                    const spring_handle = spawnSpring(Spring{
                         .particle_a = handle_a,
                         .particle_b = handle_b,
                         .rest_length = SPRING_REST_LENGTH,
-                    };
-                    const spring_handle = spawnSpring(new_spring);
-                    if (spring_handle.isValid()) {
-                        perf.count(.bonds_formed, 1);
-                        reset_module.addParticleConnection(handle_a.index, spring_handle);
-                        reset_module.addParticleConnection(handle_b.index, spring_handle);
-
-                        particle_arena.getDataAt(@intCast(i)).current_valence += 1;
-                        particle_arena.getDataAt(@intCast(j)).current_valence += 1;
-
-                        if (particle_arena.getDataAt(@intCast(i)).current_valence >= particle_arena.getDataAt(@intCast(i)).desired_valence) break;
-                    }
+                    });
+                    if (!spring_handle.isValid()) return;
+                    perf.count(.bonds_formed, 1);
+                    recordConnection(handle_a.index, spring_handle);
+                    recordConnection(handle_b.index, spring_handle);
+                    particle_a.current_valence += 1;
+                    particle_b.current_valence += 1;
+                    if (particle_a.current_valence >= particle_a.desired_valence) break :outer;
                 }
             }
         }
@@ -463,6 +492,7 @@ pub export fn reset() void {
 
     reset_module.initializeGridParticles();
     reset_module.initializeFreeAgents();
+    reset_module.initializeSprings();
 
     // After the arenas exist: the mouse particle must live in the *new* arena. (Spawning it before
     // the re-init left a stale handle that could later alias a painted particle — history-dependent

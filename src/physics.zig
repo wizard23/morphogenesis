@@ -4,11 +4,6 @@ const mouse = @import("mouse.zig");
 const main = @import("main.zig");
 const perf = @import("perf.zig");
 
-pub const Vec2 = struct {
-    x: f32,
-    y: f32,
-};
-
 const ParticleHandle = main.ParticleHandle;
 const SpringHandle = main.SpringHandle;
 const Particle = main.Particle;
@@ -18,16 +13,13 @@ const PARTICLE_SIZE = main.PARTICLE_SIZE;
 const PARTICLE_COUNT = main.PARTICLE_COUNT;
 const NO_INDEX: u32 = 0xFFFFFFFF;
 
-// Unified constraint type to reduce code duplication
 pub const ConstraintType = enum {
     distance,
     collision,
-    separation,
-    alignment,
-    cohesion,
-    mouse_spring,
 };
 
+/// One solver constraint. Kept small: it is regenerated every XPBD iteration and streamed by the
+/// solver, and MAX_CONSTRAINTS of them are static memory (was ~100 B with a Boids-era union payload).
 pub const Constraint = struct {
     type: ConstraintType,
     particle_a: ParticleHandle,
@@ -38,19 +30,9 @@ pub const Constraint = struct {
     dense_b: u32,
 
     // Constraint parameters
-    target_value: f32, // rest_length for distance, min_distance for collision, etc.
+    target_value: f32, // rest_length for distance, min_distance for collision
     compliance: f32,
     lagrange_multiplier: f32,
-
-    // Additional data for complex constraints
-    aux_data: union {
-        none: void,
-        cohesion_target: Vec2,
-        alignment_neighbors: struct {
-            handles: [16]ParticleHandle,
-            count: u32,
-        },
-    },
 
     const Self = @This();
 
@@ -64,7 +46,6 @@ pub const Constraint = struct {
             .target_value = rest_length,
             .compliance = 1.0 / (stiffness * dt * dt),
             .lagrange_multiplier = 0.0,
-            .aux_data = .{ .none = {} },
         };
     }
 
@@ -78,7 +59,6 @@ pub const Constraint = struct {
             .target_value = min_dist,
             .compliance = 1.0 / (stiffness * dt * dt),
             .lagrange_multiplier = 0.0,
-            .aux_data = .{ .none = {} },
         };
     }
 };
@@ -172,10 +152,7 @@ pub const PhysicsSystem = struct {
         t0 = perf.now();
         const particle_count = self.particle_arena.getDenseCount();
 
-        // Create a temporary array for spatial grid population
-        var temp_particles: [main.PARTICLE_COUNT]Particle = undefined;
-        self.particle_arena.fillDenseArray(temp_particles[0..particle_count]);
-        spatial.populateGrid(temp_particles[0..particle_count], particle_count);
+        spatial.populateGridArena(self.particle_arena);
         perf.max(.bin_max, spatial.getMaxOccupancy());
         perf.count(.cell_overflow, spatial.getOverflowCount());
         perf.add(.gen_grid, t0);
@@ -287,7 +264,7 @@ pub const PhysicsSystem = struct {
         const particle_b = self.particle_arena.getDataAt(constraint.dense_b);
 
         switch (constraint.type) {
-            .distance, .mouse_spring => {
+            .distance => {
                 const dx = particle_a.predicted_x - particle_b.predicted_x;
                 const dy = particle_a.predicted_y - particle_b.predicted_y;
                 const current_distance = @sqrt(dx * dx + dy * dy);
@@ -363,7 +340,6 @@ pub const PhysicsSystem = struct {
                 particle_b.vy -= impulse_y / particle_b.mass;
             },
 
-            else => {},
         }
     }
 };

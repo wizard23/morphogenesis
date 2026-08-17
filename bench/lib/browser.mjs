@@ -91,8 +91,9 @@ export function aggregateHeapProfile(head) {
   return { appBytes: app, runtimeBytes: runtime, top: [...byFn.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12) };
 }
 
-/** Run one measured phase: gc → reset probes/ring → sample → action → collect. */
-export async function measurePhase(page, cdp, name, durationMs, action) {
+/** Run one measured phase: setup (unsampled) → settle → gc → reset probes/ring → sample → action → collect. */
+export async function measurePhase(page, cdp, name, durationMs, action, setup) {
+  if (setup) { await setup(); await page.waitForTimeout(300); }
   await page.evaluate(() => { window.gc?.(); window.__morphoTimingRing.reset(); window.__morphoProbes.reset(); });
   await cdp.send("HeapProfiler.startSampling", { samplingInterval: 4096 });
   const t0 = Date.now();

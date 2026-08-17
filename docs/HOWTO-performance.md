@@ -121,5 +121,8 @@ similar `constr/it` and `S` · warm-up plateaued.
   same state). Not yet explained (main-thread interleaving with rendering? V8 flags?). Until it is,
   compare Node-to-Node and browser-to-browser only.
 - Tier 2 `grabs` counts presses, not effect; the checksum divergence S5≠S2 is the drag oracle.
+- Tier 2 DOM and alloc ceilings are per *rendered frame in the window* (not per ring entry — the ring
+  caps at 512). Event-driven allocation (e.g. `reset()` logging, and the wasm→JS `perf_now` boundary
+  the sampler attributes it to) shows up in `reset-storm`, perf builds only — not a render-path signal.
 - Stack HWM `+` means the probe saturated (real use ≥ probe); the probe covers the whole shadow
   stack on wasm, so `+` there means overflow is imminent.

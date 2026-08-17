@@ -22,9 +22,9 @@ const warn = (m) => { warnings.push(m); console.log(`  ⚠️  ${m}`); };
 
 const run = await runBrowserBench();
 printBrowserResults(run);
-const perFrame = (r) => r.probes.domMutations / Math.max(1, r.ring.frames);
 // frames actually rendered in the window ≈ duration × fps (the ring caps at 512 entries)
 const framesInWindow = (r) => Math.max(1, (r.durationMs / 1000) * (r.ring.fps || 0), r.ring.frames);
+const perFrame = (r) => r.probes.domMutations / framesInWindow(r);
 const bytesPerFrame = (r) => r.heap.appBytes / framesInWindow(r);
 
 console.log("\n== gate ==");

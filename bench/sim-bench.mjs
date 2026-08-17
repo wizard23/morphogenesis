@@ -1,35 +1,40 @@
 #!/usr/bin/env node
 // Tier 1 benchmark: sim-only wasm step timing per scenario, phase split, counters, checksum.
 //
-//   node bench/sim-bench.mjs [--mode ReleaseFast|Debug] [--only S2,S3] [--json out.json] [--md out.md]
+//   node bench/sim-bench.mjs [--mode ReleaseFast|Debug] [--only S2,S3] [--repeat K] [--json out.json] [--md out.md]
 //   MORPHO_BENCH_PROFILE=slow|fast (default fast)   MORPHO_WASM=<path> to skip the build
+//   MORPHO_BENCH_PIN=<cpu> pins the process to one core (taskset)
+//   --repeat K: run setup+bursts K times (identical workload — sim is deterministic); reports min and
+//   the spread of per-repeat p50s = pure environment noise.
 import { writeFileSync } from "node:fs";
 import { ensureWasm, instantiate } from "./lib/wasm-host.mjs";
-import { machineInfo, wasmInfo, formatHeader, PROFILE } from "./lib/machine.mjs";
+import { machineInfo, wasmInfo, formatHeader, PROFILE, pinIfRequested, LOAD_WARN } from "./lib/machine.mjs";
 import { scenariosForProfile, SCENARIOS } from "./lib/scenarios.mjs";
 import { warmUp, runScenario, expandVariants } from "./lib/runner.mjs";
 import { printResults, markdownReport } from "./lib/report.mjs";
 
 export function parseArgs(argv) {
-  const args = { mode: "ReleaseFast", only: null, json: null, md: null, flags: new Set() };
+  const args = { mode: "ReleaseFast", only: null, json: null, md: null, repeat: 1, flags: new Set() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--mode") args.mode = argv[++i];
     else if (a === "--only") args.only = new Set(argv[++i].split(","));
     else if (a === "--json") args.json = argv[++i];
     else if (a === "--md") args.md = argv[++i];
+    else if (a === "--repeat") args.repeat = Number(argv[++i]);
     else if (a.startsWith("--")) args.flags.add(a.slice(2));
     else throw new Error(`unknown arg ${a}`);
   }
   return args;
 }
 
-export async function runAll({ mode = "ReleaseFast", only = null, quiet = false, gate = false, debugGateOnly = false } = {}) {
+export async function runAll({ mode = "ReleaseFast", only = null, quiet = false, gate = false, debugGateOnly = false, repeat = 1 } = {}) {
   const wasmPath = ensureWasm(mode);
   const machine = machineInfo();
   const wasm = wasmInfo(wasmPath);
   const header = formatHeader(machine, wasm, { mode, warmup: "300 steps" });
   if (!quiet) console.log(header);
+  if (machine.loadAvg1 > LOAD_WARN) console.warn(`WARNING: load average ${machine.loadAvg1} > ${LOAD_WARN} — timing tails will be noisy; use --repeat / bench:sim:ab and read min/p50.`);
 
   const host = await instantiate(wasmPath);
   const warm = warmUp(host);
@@ -41,7 +46,7 @@ export async function runAll({ mode = "ReleaseFast", only = null, quiet = false,
     if (only && !only.has(scenario.id) && !only.has(scenario.key)) continue;
     if (debugGateOnly && scenario.debugGate === false) continue;
     const t0 = Date.now();
-    const r = runScenario(host, scenario, { profile: PROFILE, variant });
+    const r = runScenario(host, scenario, { profile: PROFILE, variant, repeat });
     r.wallMs = Date.now() - t0;
     if (!quiet) console.log(`  ${r.id.padEnd(8)} ${r.title}  → p50 ${r.p50.toFixed(3)} ms  (${r.wallMs} ms wall)`);
     results.push(r);
@@ -57,6 +62,7 @@ export async function runAll({ mode = "ReleaseFast", only = null, quiet = false,
 
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (isMain) {
+  pinIfRequested();
   const args = parseArgs(process.argv.slice(2));
   const run = await runAll(args);
   printResults(run.results);

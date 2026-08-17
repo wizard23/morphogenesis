@@ -13,6 +13,8 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { runAll, parseArgs } from "./sim-bench.mjs";
 import { REPO_ROOT } from "./lib/wasm-host.mjs";
+import { pinIfRequested } from "./lib/machine.mjs";
+pinIfRequested();
 import { printResults } from "./lib/report.mjs";
 import { SCENARIO_VERSION } from "./lib/scenarios.mjs";
 

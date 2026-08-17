@@ -1,5 +1,5 @@
 // Scenario runner: warm-up, bursts, per-step timing, ring/counters/checksum collection.
-import { dist, median } from "./stats.mjs";
+import { dist, median, iqrRel } from "./stats.mjs";
 import { DT, freshScene, step } from "./scenarios.mjs";
 
 export const BURST_DEFAULTS = { fast: { bursts: 3, burstSteps: 300 }, slow: { bursts: 2, burstSteps: 200 } };
@@ -22,15 +22,11 @@ export function warmUp(host, steps = WARMUP_STEPS) {
   return { chunks, plateau };
 }
 
-/** Run one scenario (variant optional). Returns a result record. */
-export function runScenario(host, scenario, { profile, variant } = {}) {
+/** One setup + `bursts` measured bursts of `burstSteps`. Returns per-burst records + final state. */
+function runOnce(host, scenario, { variant, bursts, burstSteps }) {
   const e = host.exports;
-  const bursts = scenario.bursts ?? BURST_DEFAULTS[profile].bursts;
-  const burstSteps = scenario.burstSteps ?? BURST_DEFAULTS[profile].burstSteps;
-
   scenario.setup(e, variant);
   const aliveBefore = { particles: e.get_alive_particle_count(), springs: e.get_alive_spring_count() };
-
   const burstResults = [];
   let stepIndex = 0;
   for (let b = 0; b < bursts; b++) {
@@ -42,23 +38,32 @@ export function runScenario(host, scenario, { profile, variant } = {}) {
       e.update_particles(DT);
       stepMs[i] = nowMs() - t0;
     }
-    burstResults.push({
-      steps: burstSteps,
-      timing: dist(stepMs),
-      phases: host.phaseMeans(),
-      counters: host.counters(),
-      stackHwm: host.stackHwm(),
-    });
+    burstResults.push({ steps: burstSteps, timing: dist(stepMs), phases: host.phaseMeans(), counters: host.counters(), stackHwm: host.stackHwm() });
   }
   const mouseGrabs = e.get_mouse_grab_count();
   scenario.teardown?.(e);
+  return { burstResults, aliveBefore, alive: { particles: e.get_alive_particle_count(), springs: e.get_alive_spring_count() }, mouseGrabs, checksum: host.checksum() };
+}
 
-  const checksum = host.checksum();
-  const alive = { particles: e.get_alive_particle_count(), springs: e.get_alive_spring_count() };
-  const p50s = burstResults.map((b) => b.timing.p50);
-  const p95s = burstResults.map((b) => b.timing.p95);
-  const rep = burstResults[Math.floor(burstResults.length / 2)]; // representative burst for phases/counters
-  const phaseMeanAcross = Object.fromEntries(Object.keys(rep.phases).map((k) => [k, median(burstResults.map((b) => b.phases[k]))]));
+/**
+ * Run one scenario (variant optional). `repeat` > 1 re-runs setup + bursts that many times: since the
+ * sim is deterministic every repeat measures the identical workload, so spread across repeats is pure
+ * environment noise, `min` is a near-ideal estimate of intrinsic cost, and p50 is the median over
+ * ALL bursts. Returns a result record.
+ */
+export function runScenario(host, scenario, { profile, variant, repeat = 1 } = {}) {
+  const bursts = scenario.bursts ?? BURST_DEFAULTS[profile].bursts;
+  const burstSteps = scenario.burstSteps ?? BURST_DEFAULTS[profile].burstSteps;
+
+  const runs = [];
+  for (let r = 0; r < repeat; r++) runs.push(runOnce(host, scenario, { variant, bursts, burstSteps }));
+  const first = runs[0];
+  const checksumsAgree = runs.every((r) => r.checksum === first.checksum);
+  const allBursts = runs.flatMap((r) => r.burstResults);
+  const p50s = allBursts.map((b) => b.timing.p50);
+  const runP50s = runs.map((r) => median(r.burstResults.map((b) => b.timing.p50)));
+  const rep = allBursts[Math.floor(allBursts.length / 2)];
+  const phaseMeanAcross = Object.fromEntries(Object.keys(rep.phases).map((k) => [k, median(allBursts.map((b) => b.phases[k]))]));
 
   return {
     id: scenario.id + (variant !== undefined ? `[${variant}]` : ""),
@@ -67,21 +72,28 @@ export function runScenario(host, scenario, { profile, variant } = {}) {
     title: scenario.title,
     bursts,
     burstSteps,
-    aliveBefore,
-    alive,
-    mouseGrabs,
+    repeat,
+    aliveBefore: first.aliveBefore,
+    alive: first.alive,
+    mouseGrabs: first.mouseGrabs,
+    min: Math.min(...allBursts.map((b) => b.timing.min)),
     p50: median(p50s),
-    p95: median(p95s),
-    p99: median(burstResults.map((b) => b.timing.p99)),
-    max: Math.max(...burstResults.map((b) => b.timing.max)),
-    spreadP50: p50s.length > 1 ? (Math.max(...p50s) - Math.min(...p50s)) / median(p50s) : 0,
+    p95: median(allBursts.map((b) => b.timing.p95)),
+    p99: median(allBursts.map((b) => b.timing.p99)),
+    max: Math.max(...allBursts.map((b) => b.timing.max)),
+    /** spread of burst p50s (single run) or of per-repeat p50s (repeat > 1): (max−min)/median */
+    spreadP50: repeat > 1
+      ? (Math.max(...runP50s) - Math.min(...runP50s)) / median(runP50s)
+      : (p50s.length > 1 ? (Math.max(...p50s) - Math.min(...p50s)) / median(p50s) : 0),
+    iqrP50: iqrRel(p50s),
     phases: phaseMeanAcross,
     counters: rep.counters,
-    stackHwm: burstResults.reduce((m, b) => (b.stackHwm.bytes > m.bytes ? b.stackHwm : m), burstResults[0].stackHwm),
+    stackHwm: allBursts.reduce((m, b) => (b.stackHwm.bytes > m.bytes ? b.stackHwm : m), allBursts[0].stackHwm),
     memoryPages: host.memoryPages(),
-    checksum,
-    checksumHex: checksum.toString(16).padStart(8, "0"),
-    burstResults,
+    checksum: first.checksum,
+    checksumHex: first.checksum.toString(16).padStart(8, "0"),
+    checksumsAgree,
+    burstResults: allBursts,
   };
 }
 

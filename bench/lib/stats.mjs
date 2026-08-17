@@ -6,10 +6,10 @@ export function percentile(sorted, p) {
 }
 
 export function dist(values) {
-  if (values.length === 0) return { p50: 0, p95: 0, p99: 0, max: 0, mean: 0, n: 0 };
+  if (values.length === 0) return { min: 0, p50: 0, p95: 0, p99: 0, max: 0, mean: 0, n: 0 };
   const s = values.slice().sort((a, b) => a - b);
   const mean = s.reduce((a, b) => a + b, 0) / s.length;
-  return { p50: percentile(s, 0.5), p95: percentile(s, 0.95), p99: percentile(s, 0.99), max: s[s.length - 1], mean, n: s.length };
+  return { min: s[0], p50: percentile(s, 0.5), p95: percentile(s, 0.95), p99: percentile(s, 0.99), max: s[s.length - 1], mean, n: s.length };
 }
 
 export function median(values) {
@@ -32,4 +32,12 @@ export function padTable(rows, aligns) {
 export function markdownTable(header, rows) {
   const line = (r) => `| ${r.join(" | ")} |`;
   return [line(header), line(header.map(() => "---")), ...rows.map(line)].join("\n");
+}
+
+/** Interquartile range relative to the median (0 when < 4 samples). */
+export function iqrRel(values) {
+  if (values.length < 4) return 0;
+  const s = values.slice().sort((a, b) => a - b);
+  const m = percentile(s, 0.5);
+  return m > 0 ? (percentile(s, 0.75) - percentile(s, 0.25)) / m : 0;
 }

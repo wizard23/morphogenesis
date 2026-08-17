@@ -3,7 +3,8 @@
 //   node bench/sim-scaling.mjs [--particles 933,2000,4000,8000,10932] [--iterations 3,6] [--md out.md]
 import { writeFileSync } from "node:fs";
 import { ensureWasm, instantiate, PHASES } from "./lib/wasm-host.mjs";
-import { machineInfo, wasmInfo, formatHeader, PROFILE } from "./lib/machine.mjs";
+import { machineInfo, wasmInfo, formatHeader, PROFILE, pinIfRequested } from "./lib/machine.mjs";
+pinIfRequested();
 import { freshScene, step, paintBlock, WORLD_W, WORLD_H, DT } from "./lib/scenarios.mjs";
 import { warmUp } from "./lib/runner.mjs";
 import { dist, padTable, fmtMs, markdownTable } from "./lib/stats.mjs";

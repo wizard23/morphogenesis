@@ -12,7 +12,8 @@
     "bench:sim:scaling": "node bench/sim-scaling.mjs",
     "bench:memory": "node bench/memory-report.mjs",
     "bench:browser": "node bench/browser-bench.mjs",
-    "bench:browser:assert": "node bench/browser-assert.mjs"
+    "bench:browser:assert": "node bench/browser-assert.mjs",
+    "bench:sim:ab": "node bench/sim-ab.mjs"
   },
   "devDependencies": {
     "chokidar": "^3.5.3",

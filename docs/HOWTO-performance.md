@@ -23,6 +23,9 @@ npm run bench:sim -- --only S2,S3 --json out.json --md out.md
 npm run bench:sim:assert      # THE GATE: self-consistency, Debug≡ReleaseFast, p95 ceilings, memory ceilings, goldens (advisory)
 npm run bench:sim:assert -- --set-thresholds   # (re)write bench/thresholds.json from this run × 1.25 — only after a kept win or a deliberate re-baseline
 npm run bench:sim:assert -- --update-goldens   # regenerate bench/goldens/* — only with an intended physics change, noted in docs/progress/performance
+npm run bench:sim -- --only S2 --repeat 7        # K identical repeats (deterministic sim): min + per-repeat spread = pure noise
+npm run bench:sim:ab -- --a HEAD --b . --only S2,S4 --repeat 7   # interleaved A/B (git ref | wasm path | .), paired B/A ratios
+MORPHO_BENCH_PIN=27 npm run bench:sim:ab -- …    # pin to one core (taskset) — the biggest single noise reduction on a busy box
 npm run bench:sim:scaling     # particles × iterations matrix, flags super-linear phases
 npm run bench:memory          # wasm sections, linear-memory pages, static budget, stack HWM per scenario, GPU buffer bytes
 npm run bench:browser         # Tier 2: headless Chromium + WebGPU — frame ring, JS gross alloc (CDP), DOM mutations, page errors
@@ -62,6 +65,26 @@ Tier 2 (`bench/browser-bench.mjs`) adds, per phase (`idle-paused`, `steady`, `dr
 
 The static server used by the harness serves the repo root with COOP/COEP and overrides
 `/webgpu-demo.wasm` with the perf build, so the shipped wasm is never touched.
+
+## Getting accurate numbers on a noisy machine (added 2026-08-17)
+
+Measured on this box at load average 9–11: unpaired p50 comparisons between two runs swung by ±30 %
+while the *intrinsic* cost had not moved. What fixed it, in order of payoff:
+
+1. **Pin to one core** (`MORPHO_BENCH_PIN=<cpu>`): p50 IQR went from ~30 % to ~1 %.
+2. **Interleaved A/B with paired ratios** (`bench:sim:ab`): A and B alternate every repeat (order
+   flipped each time), and the estimate is the median of per-repeat B/A ratios — drift and
+   whole-repeat slowdowns cancel. Verdict needs both p50 *and* min ratios to clear 2× their IQR in the
+   same direction; "p50 moved, min did not" is flagged as probable interference.
+3. **Repeats of the identical workload** (`--repeat K`): the sim is deterministic, so per-repeat spread
+   is pure environment noise and `min` is a near-ideal estimate of intrinsic cost. Prefer `min`/`p50`;
+   p95/p99/max are tail (interference) statistics on a busy machine.
+4. Longer bursts and more particles help only for *stationary* scenarios (S2, S6, S7) — S1 is a
+   transient by design and S3/S4 drift during a burst, so a longer burst measures a different state.
+   Neither addresses the dominant term (other processes).
+
+The header prints the 1-min load average and warns above 2; the gate's p95 ceilings should only be
+(re)set on a quiet machine.
 
 ## Judging a result
 

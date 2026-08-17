@@ -43,6 +43,10 @@ class MorphogenesisRenderer {
     
     // Cached data for performance
     this.cachedParticleData = null;
+
+    // Last-frame timings (ms) for the host's timing ring — written every render(), never allocated
+    this.lastUploadMs = 0;   // updateData(): bulk readback + writeBuffer submissions
+    this.lastSubmitMs = 0;   // command encoding + queue.submit (CPU side only, not GPU execution)
   }
 
   log(message) {
@@ -617,7 +621,10 @@ class MorphogenesisRenderer {
   }
 
   render(wasmModule) {
+    const uploadStart = performance.now();
     const { particleCount, springCount, hasMouseSpring } = this.updateData(wasmModule);
+    const submitStart = performance.now();
+    this.lastUploadMs = submitStart - uploadStart;
 
     try {
       const commandEncoder = this.device.createCommandEncoder();
@@ -665,7 +672,8 @@ class MorphogenesisRenderer {
       
       passEncoder.end();
       this.device.queue.submit([commandEncoder.finish()]);
-      
+      this.lastSubmitMs = performance.now() - submitStart;
+
     } catch (error) {
       this.log("Render error: " + error.message);
       console.error("Full render error:", error);

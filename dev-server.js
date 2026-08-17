@@ -87,7 +87,13 @@ const server = http.createServer((req, res) => {
       data = data.toString().replace('</body>', injectedScript);
     }
     
-    res.writeHead(200, { 'Content-Type': mimeType });
+    // Cross-origin isolation: gives performance.now() 5 µs resolution (instead of 100 µs) and
+    // enables performance.measureUserAgentSpecificMemory(). No cross-origin resources are used.
+    res.writeHead(200, {
+      'Content-Type': mimeType,
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    });
     res.end(data);
   });
 });

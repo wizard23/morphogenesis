@@ -12,6 +12,15 @@ let fpsFrames = 0;
 let fpsWindowStart = 0;
 let fpsValue = 0;
 
+// In-app timing ring (zero-alloc on the frame path): per frame [simMs, uploadMs, submitMs, frameIntervalMs].
+// Read by benchmarks via window.__morphoTimingRing (see docs/HOWTO-performance.md).
+const TIMING_RING_FRAMES = 512;
+const TIMING_RING_STRIDE = 4;
+const timingRing = new Float32Array(TIMING_RING_FRAMES * TIMING_RING_STRIDE);
+let timingRingHead = 0;
+let timingRingCount = 0;
+let lastFrameStart = 0;
+
 // Mouse interaction state
 let mousePressed = false;
 let mouseX = 0;
@@ -299,6 +308,8 @@ async function loadWasm() {
         }
       },
       emscripten_webgpu_get_device: () => (renderer?.device ? 1 : 0),
+      // High-resolution clock for perf.zig phase timing (only imported by -Dperf=true builds)
+      perf_now: () => performance.now(),
     };
 
     const wasmResponse = await fetch("webgpu-demo.wasm");
@@ -368,6 +379,16 @@ function renderFrame() {
   // Calculate total frame time
   const frameEnd = performance.now();
   const totalFrameTimeMs = frameEnd - frameStart;
+
+  // Record into the timing ring
+  const ringBase = timingRingHead * TIMING_RING_STRIDE;
+  timingRing[ringBase] = physicsTimeMs;
+  timingRing[ringBase + 1] = renderer.lastUploadMs;
+  timingRing[ringBase + 2] = renderer.lastSubmitMs;
+  timingRing[ringBase + 3] = lastFrameStart ? frameStart - lastFrameStart : 0;
+  lastFrameStart = frameStart;
+  timingRingHead = (timingRingHead + 1) % TIMING_RING_FRAMES;
+  if (timingRingCount < TIMING_RING_FRAMES) timingRingCount++;
 // console.log(totalFrameTimeMs);
   // Update timing display with detailed breakdown
   let statusText;
@@ -389,6 +410,36 @@ function renderFrame() {
   // Continue animation
   animationId = requestAnimationFrame(renderFrame);
 }
+
+// Benchmark hooks (Tier 2 harness / manual console use). Read-only or export-wrapping; no UI coupling.
+window.__morphoTimingRing = {
+  stride: TIMING_RING_STRIDE,
+  fields: ["simMs", "uploadMs", "submitMs", "frameIntervalMs"],
+  reset() { timingRingHead = 0; timingRingCount = 0; timingRing.fill(0); lastFrameStart = 0; },
+  read() { return { buffer: Array.from(timingRing), head: timingRingHead, count: timingRingCount }; },
+};
+
+window.__morphoBench = {
+  stepBurst(n) { for (let i = 0; i < n; i++) wasmModule.exports.update_particles(0.016); },
+  paintBlock({ cx, cy, cols, rows, spacing, valence }) {
+    const x0 = cx - ((cols - 1) * spacing) / 2, y0 = cy - ((rows - 1) * spacing) / 2;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) wasmModule.exports.add_particle(x0 + c * spacing, y0 + r * spacing, valence);
+  },
+  mouse(x, y, pressed) { wasmModule.exports.set_mouse_interaction(x, y, pressed); },
+  setPaused(paused) { isPaused = paused; document.getElementById('pause-btn').textContent = paused ? 'Resume' : 'Pause'; },
+  reset() { wasmModule.exports.reset(); },
+  snapshot() {
+    const e = wasmModule.exports;
+    return {
+      particles: e.get_alive_particle_count(), springs: e.get_alive_spring_count(),
+      binMax: e.get_spatial_max_occupancy(), grabs: e.get_mouse_grab_count(),
+      checksum: (e.state_checksum() >>> 0).toString(16).padStart(8, "0"),
+      memoryPages: e.memory.buffer.byteLength / 65536,
+      stackHwm: e.perf_stack_hwm(), perfEnabled: !!e.perf_is_enabled(),
+      worldW: e.get_world_width(), worldH: e.get_world_height(), fps: fpsValue,
+    };
+  },
+};
 
 // Initialize everything
 async function init() {

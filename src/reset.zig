@@ -17,14 +17,8 @@ const MAX_CONNECTIONS_PER_PARTICLE = main.MAX_CONNECTIONS_PER_PARTICLE;
 const Particle = main.Particle;
 const Spring = main.Spring;
 
-// Console logging
-extern fn console_log(ptr: [*]const u8, len: usize) void;
-
-fn log(comptime fmt: []const u8, args: anytype) void {
-    var buffer: [1024]u8 = undefined;
-    const message = std.fmt.bufPrint(buffer[0..], fmt, args) catch "Log message too long";
-    console_log(message.ptr, message.len);
-}
+const host = @import("host.zig");
+const log = host.log;
 
 // Initialize grid particles in 5x5 layout of grids
 pub fn initializeGridParticles() void {

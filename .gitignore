@@ -26,3 +26,6 @@ server.log
 *.temp
 
 node_modules/
+
+# Benchmark harness builds (perf-instrumented wasm per optimize mode)
+bench/.build/

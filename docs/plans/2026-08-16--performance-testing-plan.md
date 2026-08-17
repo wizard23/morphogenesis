@@ -2,7 +2,27 @@
 
 *Drafted 2026-08-16 against commit `6cd6947`. Companion to
 [`docs/reports/2026-08-16-app-analysis.md`](../reports/2026-08-16-app-analysis.md).*
-*Status: **READY** (decisions recorded 2026-08-16, see §0a). Milestone 1 = Phases 0, 1, 2, 3, 5, 6.*
+*Status: **IN PROGRESS** — Phases 0, 1, 2, 3, 5 implemented and Phase 6 baseline captured on 2026-08-16
+(`docs/progress/performance/2026/08/2026-08-16T18-28-00Z--initial-tier1-baseline.md`,
+`docs/perf/2026-08-16--tier1-baseline-report.md`). Milestone 2 (Phase 4 browser tier, Phase 7 wiring) open.
+Deviations from the plan as written are listed in §0b.*
+
+## 0b. Implementation notes / deviations (2026-08-16)
+
+- **Gate duration is ~4.5 min, not < 60 s** (measured: ReleaseFast pass ≈ 70 s without S6, Debug ≈ 6× slower).
+  S6 is bench/scaling-only; the Debug pass runs S1, S2, S5, S7. Use `bench:sim --only S2` for tight loops.
+- **Debug wasm needed `stack_size = 4 MiB`** (`build.zig`) — it trapped at init with the 1 MiB default
+  (by-value arena init + 530 KB `generateConstraints` temporaries). Root-cause fix is follow-up #3 in the report.
+- `preferred_optimize_mode` was not usable (it replaces `-Doptimize` with `-Drelease`, default Debug);
+  `build.zig` uses an explicit `-Doptimize` option defaulting to ReleaseFast instead.
+- Stack HWM uses `@frameAddress()` + sentinel painting (works on wasm and native); the probe covers the
+  whole shadow stack on wasm, 2 MiB on native.
+- Thresholds/goldens live in `bench/thresholds.json` and `bench/goldens/`; goldens are advisory (§0a).
+- Phase 3 done without a browser check yet: `window.__morphoTimingRing`, `window.__morphoBench`, COOP/COEP
+  headers in `dev-server.js`, `perf_now` in the page's import object. Verify in the browser before Phase 4.
+- Memory report has no per-symbol dump (Zig 0.16 emits no map for wasm); static budget is derived from
+  constants and cross-checked against pages (33.3 MB vs 34.0 MB measured).
+
 
 ## 0a. Decisions (2026-08-16)
 

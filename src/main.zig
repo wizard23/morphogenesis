@@ -5,6 +5,9 @@ const reset_module = @import("reset.zig");
 const generational = @import("generational.zig");
 const mouse = @import("mouse.zig");
 const physics = @import("physics.zig");
+const perf = @import("perf.zig");
+const host = @import("host.zig");
+const log = host.log;
 
 pub const GRID_COUNT = 3;
 pub const GRID_PARTICLE_SIZE = 12;
@@ -23,6 +26,7 @@ var world_height: f32 = WORLD_SIZE;
 
 const XPBD_ITERATIONS = 6;
 // const XPBD_SUBSTEPS = 6;
+var xpbd_iterations: u32 = XPBD_ITERATIONS; // runtime override for benchmarks (set_xpbd_iterations)
 
 const DISTANCE_STIFFNESS = 1000_000_000.0;
 const COLLISION_STIFFNESS = 1.0;
@@ -180,16 +184,7 @@ var spring_bulk_buffer: [MAX_SPRINGS * 4]f32 = undefined;
 
 var physics_system: physics.PhysicsSystem = undefined;
 
-extern fn emscripten_webgpu_get_device() u32;
-extern fn console_log(ptr: [*]const u8, len: usize) void;
-
 var device_handle: u32 = 0;
-
-fn log(comptime fmt: []const u8, args: anytype) void {
-    var buffer: [1024]u8 = undefined;
-    const message = std.fmt.bufPrint(buffer[0..], fmt, args) catch "Log message too long";
-    console_log(message.ptr, message.len);
-}
 
 fn initializeParticleSystems() void {
     particle_arena = ParticleArena.init();
@@ -333,7 +328,22 @@ pub fn findClosestParticleIndex(target_x: f32, target_y: f32) u32 {
     return closest_index;
 }
 
-// Dense arrays are now always maintained - no rebuild needed
+// Dense-order accessors (iteration detail; valid until the next spawn/destroy)
+pub fn getDenseParticleCount() u32 {
+    return particle_arena.getDenseCount();
+}
+
+pub fn getDenseParticleAt(index: u32) *const Particle {
+    return particle_arena.getDataAt(index);
+}
+
+pub fn getDenseSpringCount() u32 {
+    return spring_arena.getDenseCount();
+}
+
+pub fn getDenseSpringAt(index: u32) *const Spring {
+    return spring_arena.getDataAt(index);
+}
 
 pub fn getSpringCount() u32 {
     return spring_arena.getAliveCount();
@@ -400,6 +410,7 @@ fn updateValenceBonds() void {
                     };
                     const spring_handle = spawnSpring(new_spring);
                     if (spring_handle.isValid()) {
+                        perf.count(.bonds_formed, 1);
                         reset_module.addParticleConnection(handle_a.index, spring_handle);
                         reset_module.addParticleConnection(handle_b.index, spring_handle);
 
@@ -419,9 +430,9 @@ fn initializeValenceCounts() void {
     countValenceFromAlivesprings();
 }
 
-export fn init() void {
+pub export fn init() void {
     log("Initializing enhanced particle system: {} grids + {} free agents...", .{ GRID_COUNT, FREE_AGENT_COUNT });
-    device_handle = emscripten_webgpu_get_device();
+    device_handle = host.emscripten_webgpu_get_device();
     log("WebGPU device initialized: {}", .{device_handle});
 
     spatial.initializeGrid();
@@ -446,7 +457,7 @@ export fn init() void {
     log("Mouse interaction system initialized", .{});
 }
 
-export fn reset() void {
+pub export fn reset() void {
     log("Resetting particle system...", .{});
 
     mouse.initMouseSystem();
@@ -463,28 +474,51 @@ export fn reset() void {
     log("Particle system reset complete", .{});
 }
 
-export fn update_particles(dt: f32) void {
-    const microDt = dt / XPBD_ITERATIONS;
+pub export fn update_particles(dt: f32) void {
+    const microDt = dt / @as(f32, @floatFromInt(xpbd_iterations));
     if (!particles_initialized) return;
 
+    perf.beginFrame();
+
+    var t0 = perf.now();
     predictPositionsForAliveParticles(dt);
+    perf.add(.predict, t0);
 
+    t0 = perf.now();
     mouse.updateMousePhysics();
+    perf.add(.mouse, t0);
 
+    t0 = perf.now();
     updateValenceBonds();
+    perf.add(.bonds, t0);
 
     // Use physics system to generate and solve constraints
-
-    for (0..XPBD_ITERATIONS) |_| {
+    for (0..xpbd_iterations) |_| {
         physics_system.generateConstraints(
             microDt,
             DISTANCE_STIFFNESS,
             COLLISION_STIFFNESS,
         );
+        t0 = perf.now();
         physics_system.solveConstraints(microDt);
+        perf.add(.solve, t0);
+        perf.count(.iterations, 1);
     }
 
+    t0 = perf.now();
     updatePositionsForAliveParticles(dt);
+    perf.add(.commit, t0);
+
+    perf.endFrame();
+}
+
+/// Benchmark hook: override the XPBD iteration count (clamped to ≥ 1).
+export fn set_xpbd_iterations(n: u32) void {
+    xpbd_iterations = @max(1, n);
+}
+
+export fn get_xpbd_iterations() u32 {
+    return xpbd_iterations;
 }
 
 export fn get_particle_count() i32 {
@@ -607,7 +641,7 @@ export fn destroy_particle_by_index(particle_index: i32) void {
     _ = particle_index;
 }
 
-export fn get_alive_particle_count() i32 {
+pub export fn get_alive_particle_count() i32 {
     return @intCast(getAliveParticleCount());
 }
 

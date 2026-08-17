@@ -2,6 +2,7 @@ const std = @import("std");
 const spatial = @import("spatial.zig");
 const mouse = @import("mouse.zig");
 const main = @import("main.zig");
+const perf = @import("perf.zig");
 
 pub const Vec2 = struct {
     x: f32,
@@ -113,6 +114,7 @@ pub const PhysicsSystem = struct {
     ) void {
         self.constraint_count = 0;
 
+        var t0 = perf.now();
         var springs_to_remove: [MAX_SPRINGS]SpringHandle = undefined;
         var remove_count: u32 = 0;
 
@@ -160,21 +162,31 @@ pub const PhysicsSystem = struct {
         for (0..remove_count) |j| {
             self.spring_arena.destroy(springs_to_remove[j]);
         }
+        perf.count(.springs_removed, remove_count);
+        perf.add(.gen_springs, t0);
+        const spring_constraint_count = self.constraint_count;
 
         // Generate collision constraints using spatial grid
+        t0 = perf.now();
         const particle_count = self.particle_arena.getDenseCount();
 
         // Create a temporary array for spatial grid population
         var temp_particles: [main.PARTICLE_COUNT]Particle = undefined;
         self.particle_arena.fillDenseArray(temp_particles[0..particle_count]);
         spatial.populateGrid(temp_particles[0..particle_count], particle_count);
+        perf.max(.bin_max, spatial.getMaxOccupancy());
+        perf.add(.gen_grid, t0);
 
+        t0 = perf.now();
         for (0..particle_count) |i| {
             const handle = self.particle_arena.getHandleAt(@intCast(i));
             if (!mouse.isMouseParticle(handle)) {
                 self.generateCollisionConstraintsForParticle(handle, @intCast(i), dt, collision_stiffness);
             }
         }
+        perf.count(.collision_pairs, self.constraint_count - spring_constraint_count);
+        perf.count(.constraints, self.constraint_count);
+        perf.add(.gen_collide, t0);
     }
 
     fn generateCollisionConstraintsForParticle(

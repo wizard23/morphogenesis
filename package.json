@@ -4,7 +4,13 @@
   "description": "Boids simulation with WebGPU",
   "scripts": {
     "dev": "node dev-server.js",
-    "build": "./build.sh"
+    "build": "./build.sh",
+    "build:perf": "PERF=1 ./build.sh",
+    "test:zig": "zig build test",
+    "bench:sim": "node bench/sim-bench.mjs",
+    "bench:sim:assert": "node bench/sim-assert.mjs",
+    "bench:sim:scaling": "node bench/sim-scaling.mjs",
+    "bench:memory": "node bench/memory-report.mjs"
   },
   "devDependencies": {
     "chokidar": "^3.5.3",

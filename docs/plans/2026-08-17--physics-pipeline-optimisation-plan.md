@@ -14,7 +14,7 @@ measurement-accuracy work (`…T11-30-00Z--measurement-accuracy-repeat-ab-pinnin
 | Spatial bins | **20 px cells** (contact-sized) with a **5×5 mouse-grab search** so the 25 px grab radius still holds; guarded by the `disp px` counter (needs ≥ ~10 px slack ⇒ ≥ 3 XPBD iterations). |
 | Order | Re-baseline on a **quiet, pinned** machine → mechanical steps (#2 data layout, #3 20 px bins, #4 half-neighbourhood) as A/B'd steps → the XPBD/generation change last, so its before/after is measured against the fastest generation path. |
 | Shipped wasm | **Strip DWARF** in `build.sh` release output (~590 KB of 811 KB); perf/bench builds stay unstripped. |
-| Commits | Left to the user, as before. |
+| Commits | **One commit per kept slice** by the agent (message: slice + key numbers, referencing the progress note). Changed 2026-08-17. |
 
 ## Slices (each: baseline → one change → `bench:sim:ab` under `MORPHO_BENCH_PIN` → note → gate)
 

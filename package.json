@@ -10,10 +10,13 @@
     "bench:sim": "node bench/sim-bench.mjs",
     "bench:sim:assert": "node bench/sim-assert.mjs",
     "bench:sim:scaling": "node bench/sim-scaling.mjs",
-    "bench:memory": "node bench/memory-report.mjs"
+    "bench:memory": "node bench/memory-report.mjs",
+    "bench:browser": "node bench/browser-bench.mjs",
+    "bench:browser:assert": "node bench/browser-assert.mjs"
   },
   "devDependencies": {
     "chokidar": "^3.5.3",
+    "playwright": "^1.62.1",
     "ws": "^8.14.2"
   }
 }

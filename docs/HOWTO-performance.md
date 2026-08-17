@@ -25,6 +25,9 @@ npm run bench:sim:assert -- --set-thresholds   # (re)write bench/thresholds.json
 npm run bench:sim:assert -- --update-goldens   # regenerate bench/goldens/* — only with an intended physics change, noted in docs/progress/performance
 npm run bench:sim:scaling     # particles × iterations matrix, flags super-linear phases
 npm run bench:memory          # wasm sections, linear-memory pages, static budget, stack HWM per scenario, GPU buffer bytes
+npm run bench:browser         # Tier 2: headless Chromium + WebGPU — frame ring, JS gross alloc (CDP), DOM mutations, page errors
+npm run bench:browser:assert  # Tier 2 gate: zero page errors; APP alloc B/s + DOM mutations/frame ≤ ceilings (per adapter mode)
+GPU=1 npm run bench:browser   # real adapter (Vulkan, blocklist ignored) instead of SwiftShader; HEADED=1 to watch
 ```
 
 Environment: `MORPHO_BENCH_PROFILE=fast|slow` (default `fast`; slow = shorter bursts, no S6),
@@ -47,7 +50,17 @@ in every note — compare only matched headers.
 | linear-memory pages, wasm bytes | host | memory (static; growth = bug) |
 | spread | (max−min)/median of burst p50s | noise indicator; > ~15 % ⇒ re-run before trusting a delta |
 
-Tier 2 (browser: frame ring, JS gross allocation via CDP, DOM mutations) is milestone 2 — see the plan.
+Tier 2 (`bench/browser-bench.mjs`) adds, per phase (`idle-paused`, `steady`, `drag`, `paint`, `reset-storm`):
+
+| Metric | Source | Role |
+|---|---|---|
+| `sim/upload/submit` p50/p95, `frame p95`, fps | `window.__morphoTimingRing` (script.js, zero-alloc) | in-app timing; **fps under SwiftShader is a software-raster artefact — use `GPU=1` for anything about rendering** |
+| `APP KB/s` (script.js + renderer.js) vs `runtime KB/s`, top allocators | CDP `HeapProfiler` sampling (4 KB interval); attribution is per *function* (line = function start) | **primary for render-path work**; goal 0 (0/0/0 rule) |
+| DOM mutations (+ sources) | MutationObserver | goal 0 per frame |
+| page / console errors, adapter string, `crossOriginIsolated`, timer resolution | Playwright / probe | hygiene + provenance |
+
+The static server used by the harness serves the repo root with COOP/COEP and overrides
+`/webgpu-demo.wasm` with the perf build, so the shipped wasm is never touched.
 
 ## Judging a result
 
@@ -79,5 +92,10 @@ similar `constr/it` and `S` · warm-up plateaued.
   ms — read the phase table, not just p50.
 - **S5 (drag) currently equals S2** — the mouse handle is stale after `reset()` (known bug); the
   scenario is kept so the fix has to make it diverge.
+- **Tier 1 vs Tier 2 sim time differ** at baseline (S2: 3.0 ms in Node vs 4.9 ms in Chromium, same wasm,
+  same state). Not yet explained (main-thread interleaving with rendering? V8 flags?). Until it is,
+  compare Node-to-Node and browser-to-browser only.
+- Tier 2 `grabs` is not a correctness oracle for the drag (grab_count increments even with a stale
+  mouse handle); the checksum divergence S5≠S2 is.
 - Stack HWM `+` means the probe saturated (real use ≥ probe); the probe covers the whole shadow
   stack on wasm, so `+` there means overflow is imminent.

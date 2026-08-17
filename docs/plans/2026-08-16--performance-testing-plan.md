@@ -2,10 +2,12 @@
 
 *Drafted 2026-08-16 against commit `6cd6947`. Companion to
 [`docs/reports/2026-08-16-app-analysis.md`](../reports/2026-08-16-app-analysis.md).*
-*Status: **IN PROGRESS** — Phases 0, 1, 2, 3, 5 implemented and Phase 6 baseline captured on 2026-08-16
+*Status: **IMPLEMENTED** — all phases done. Milestone 1 (Phases 0–3, 5, 6) on 2026-08-16
 (`docs/progress/performance/2026/08/2026-08-16T18-28-00Z--initial-tier1-baseline.md`,
-`docs/perf/2026-08-16--tier1-baseline-report.md`). Milestone 2 (Phase 4 browser tier, Phase 7 wiring) open.
-Deviations from the plan as written are listed in §0b.*
+`docs/perf/2026-08-16--tier1-baseline-report.md`); Milestone 2 (Phase 4 browser tier + Phase 7 wiring) on 2026-08-17
+(`docs/progress/performance/2026/08/2026-08-17T03-40-00Z--initial-tier2-browser-baseline.md`).
+Deviations from the plan as written are listed in §0b. What remains is the optimisation work itself,
+each step through the measured loop (`docs/HOWTO-performance.md`).*
 
 ## 0b. Implementation notes / deviations (2026-08-16)
 
@@ -20,6 +22,12 @@ Deviations from the plan as written are listed in §0b.*
 - Thresholds/goldens live in `bench/thresholds.json` and `bench/goldens/`; goldens are advisory (§0a).
 - Phase 3 done without a browser check yet: `window.__morphoTimingRing`, `window.__morphoBench`, COOP/COEP
   headers in `dev-server.js`, `perf_now` in the page's import object. Verify in the browser before Phase 4.
+- Phase 4: headless WebGPU works on `http://localhost` (not `about:blank`): SwiftShader via
+  `--use-webgpu-adapter=swiftshader`, real adapter (`amd/gcn-5`) via `GPU=1` → `--ignore-gpu-blocklist
+  --use-angle=vulkan`. Playwright ^1.62 added as the only devDependency beyond the dev server; Chromium
+  from `/usr/bin/chromium`. Browser gate ceilings live under `browser.<mode>` in `bench/thresholds.json`.
+  Open: Tier 2 sim p50 (4.9 ms) ≠ Tier 1 (3.0 ms) for S2 — investigate before cross-tier claims.
+- Phase 7: workflow note in `claude.md`; no pre-push hook / CI (decision §0a).
 - Memory report has no per-symbol dump (Zig 0.16 emits no map for wasm); static budget is derived from
   constants and cross-checked against pages (33.3 MB vs 34.0 MB measured).
 

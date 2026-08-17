@@ -22,5 +22,69 @@
     "memoryPagesMax": 519,
     "stackHwmBytesMax": 475913,
     "wasmBytesMax": 1899218
+  },
+  "browser": {
+    "swiftshader": {
+      "_note": "APP alloc B/s and DOM mutations/frame ceilings = first run × 1.25; ratchet toward 0 after kept wins.",
+      "_setFrom": {
+        "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
+        "git": "3352ea3",
+        "adapter": "google/swiftshader",
+        "time": "2026-08-17T03:41:56.749Z"
+      },
+      "phases": {
+        "idle-paused": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.26
+        },
+        "steady": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.31
+        },
+        "drag": {
+          "appBytesPerSecMax": 21576,
+          "domMutationsPerFrameMax": 1.27
+        },
+        "paint": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.27
+        },
+        "reset-storm": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.28
+        }
+      }
+    },
+    "gpu": {
+      "_note": "APP alloc B/s and DOM mutations/frame ceilings = first run × 1.25; ratchet toward 0 after kept wins.",
+      "_setFrom": {
+        "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
+        "git": "3352ea3",
+        "adapter": "amd/gcn-5",
+        "time": "2026-08-17T03:42:18.478Z"
+      },
+      "phases": {
+        "idle-paused": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 5.15
+        },
+        "steady": {
+          "appBytesPerSecMax": 12805,
+          "domMutationsPerFrameMax": 1.88
+        },
+        "drag": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.48
+        },
+        "paint": {
+          "appBytesPerSecMax": 26793,
+          "domMutationsPerFrameMax": 1.41
+        },
+        "reset-storm": {
+          "appBytesPerSecMax": 0,
+          "domMutationsPerFrameMax": 1.34
+        }
+      }
+    }
   }
 }

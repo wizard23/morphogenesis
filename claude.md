@@ -25,3 +25,10 @@ This keeps comments descriptive without duplicating values that may change.
   See [`docs/principles/kaizen.md`](docs/principles/kaizen.md).
 - **Determinism** — same inputs, same outputs; fixed `dt`, seeded randomness only, state checksum
   as the oracle for every optimisation. See [`docs/principles/determinism.md`](docs/principles/determinism.md).
+
+## Performance workflow
+
+- Before/after any change to `src/*.zig` hot paths: `npm run bench:sim:assert` (≈4.5 min) — or
+  `npm run bench:sim -- --only S2` while iterating. Before hand-off of render/host changes:
+  `npm run bench:browser:assert`. Record every measurement in `docs/progress/performance/<yyyy>/<mm>/`.
+  How to run and judge: [`docs/HOWTO-performance.md`](docs/HOWTO-performance.md).

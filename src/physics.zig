@@ -152,7 +152,7 @@ pub const PhysicsSystem = struct {
         t0 = perf.now();
         const particle_count = self.particle_arena.getDenseCount();
 
-        spatial.populateGridArena(self.particle_arena);
+        spatial.populateGridArena(self.particle_arena, .predicted);
         perf.max(.bin_max, spatial.getMaxOccupancy());
         perf.count(.cell_overflow, spatial.getOverflowCount());
         perf.add(.gen_grid, t0);
@@ -180,14 +180,15 @@ pub const PhysicsSystem = struct {
         collision_stiffness: f32,
     ) void {
         const particle = self.particle_arena.getDataAt(particle_dense_idx);
-        const dense_count = self.particle_arena.getDenseCount();
+        const px = particle.predicted_x;
+        const py = particle.predicted_y;
         const contact_distance = PARTICLE_SIZE * 2.0;
         const contact_distance_sq = contact_distance * contact_distance;
         const billiard_stiffness = collision_stiffness * 10.0;
 
-        // Use current position for spatial lookup (since that's what was populated)
-        const gx = spatial.worldToGridX(particle.x);
-        const gy = spatial.worldToGridY(particle.y);
+        // The grid was populated from predicted positions (see generateConstraints).
+        const gx = spatial.worldToGridX(px);
+        const gy = spatial.worldToGridY(py);
 
         var dy: i32 = -1;
         while (dy <= 1) : (dy += 1) {
@@ -202,27 +203,22 @@ pub const PhysicsSystem = struct {
                     const cell = spatial.getGridCellByCoords(@intCast(check_x), @intCast(check_y));
 
                     for (0..cell.count) |i| {
-                        const neighbor_index = cell.particles[i];
+                        const neighbor_index = cell.idx[i];
+                        // Each unordered pair once: the lower dense index owns it. This also skips self.
+                        if (neighbor_index <= particle_dense_idx or neighbor_index == mouse_dense) continue;
 
-                        if (neighbor_index >= dense_count) continue;
-                        if (neighbor_index == particle_dense_idx or neighbor_index == mouse_dense) continue;
-                        const neighbor_handle = self.particle_arena.getHandleAt(neighbor_index);
-                        // Each unordered pair once: the lower sparse index owns it.
-                        if (particle_handle.index >= neighbor_handle.index) continue;
-
-                        const other = self.particle_arena.getDataAt(neighbor_index);
-                        const dx_pred = particle.predicted_x - other.predicted_x;
-                        const dy_pred = particle.predicted_y - other.predicted_y;
+                        const dx_pred = px - cell.x[i];
+                        const dy_pred = py - cell.y[i];
                         const dist_sq = dx_pred * dx_pred + dy_pred * dy_pred;
 
                         // Cheap exact reject: dist_sq >= c² ⇒ sqrt(dist_sq) >= c (sqrt is monotone,
-                        // c² exact), so the sqrt below is only reached for candidate contacts and
-                        // its result is unchanged.
+                        // c² exact), so the sqrt below is only reached for candidate contacts.
                         if (dist_sq >= contact_distance_sq) continue;
                         const current_distance = @sqrt(dist_sq);
 
                         if (current_distance < contact_distance) {
                             if (self.constraint_count < self.constraints.len) {
+                                const neighbor_handle = self.particle_arena.getHandleAt(neighbor_index);
                                 var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance, billiard_stiffness, dt);
                                 constraint.dense_a = particle_dense_idx;
                                 constraint.dense_b = neighbor_index;

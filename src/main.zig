@@ -396,7 +396,7 @@ fn recordConnection(particle_index: u32, spring_handle: SpringHandle) void {
 /// lower dense index. Visit order: dense order of the owner, then the 3×3 cells (dy, dx ascending),
 /// then cell insertion (dense) order — deterministic, see docs/principles/determinism.md.
 fn updateValenceBonds() void {
-    spatial.populateGridArena(&particle_arena);
+    spatial.populateGridArena(&particle_arena, .current);
     const dense_particle_count = particle_arena.getDenseCount();
     const min_bond_distance_sq = (SPRING_REST_LENGTH * 0.9) * (SPRING_REST_LENGTH * 0.9);
     const max_bond_distance_sq = (SPRING_REST_LENGTH * 1.1) * (SPRING_REST_LENGTH * 1.1);
@@ -419,15 +419,17 @@ fn updateValenceBonds() void {
                 const cell = spatial.getGridCellByCoords(@intCast(cx), @intCast(cy));
 
                 for (0..cell.count) |k| {
-                    const j = cell.particles[k];
+                    const j = cell.idx[k];
                     if (j <= i) continue;
-                    const particle_b = particle_arena.getDataAt(j);
-                    if (particle_b.current_valence >= particle_b.desired_valence) continue;
 
-                    const ddx = particle_b.x - particle_a.x;
-                    const ddy = particle_b.y - particle_a.y;
+                    // distance first, from the cell's own coordinates (current positions)
+                    const ddx = cell.x[k] - particle_a.x;
+                    const ddy = cell.y[k] - particle_a.y;
                     const distance_sq = ddx * ddx + ddy * ddy;
                     if (distance_sq < min_bond_distance_sq or distance_sq > max_bond_distance_sq) continue;
+
+                    const particle_b = particle_arena.getDataAt(j);
+                    if (particle_b.current_valence >= particle_b.desired_valence) continue;
 
                     const handle_b = particle_arena.getHandleAt(j);
                     if (isConnected(handle_a, handle_b)) continue;

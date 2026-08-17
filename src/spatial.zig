@@ -18,27 +18,29 @@ pub const MAX_PARTICLES_PER_CELL = 64;
 pub var grid_size_x: u32 = 0;
 pub var grid_size_y: u32 = 0;
 
-// Spatial grid cell structure
+// Spatial grid cell: SoA of dense index + the coordinates the grid was populated with, so a
+// neighbourhood scan is a sequential sweep over cell memory and the arena is touched only on a hit.
 pub const GridCell = struct {
-    particles: [MAX_PARTICLES_PER_CELL]u32,
+    idx: [MAX_PARTICLES_PER_CELL]u32,
+    x: [MAX_PARTICLES_PER_CELL]f32,
+    y: [MAX_PARTICLES_PER_CELL]f32,
     count: u32,
 
     const Self = @This();
 
     pub fn init() Self {
-        return Self{
-            .particles = undefined,
-            .count = 0,
-        };
+        return Self{ .idx = undefined, .x = undefined, .y = undefined, .count = 0 };
     }
 
     pub fn clear(self: *Self) void {
         self.count = 0;
     }
 
-    pub fn add(self: *Self, particle_index: u32) void {
+    pub fn add(self: *Self, dense_index: u32, px: f32, py: f32) void {
         if (self.count < MAX_PARTICLES_PER_CELL) {
-            self.particles[self.count] = particle_index;
+            self.idx[self.count] = dense_index;
+            self.x[self.count] = px;
+            self.y[self.count] = py;
             self.count += 1;
         } else {
             overflow_count += 1;
@@ -120,14 +122,20 @@ pub fn clearGrid() void {
     }
 }
 
+/// Which particle coordinates populate the grid: the committed position (bonding, mouse grab) or the
+/// predicted position (collision detection runs on predictions).
+pub const Positions = enum { current, predicted };
+
 /// Populate directly from the particle arena's dense storage (no intermediate copy).
-pub fn populateGridArena(arena: *main_module.ParticleArena) void {
+pub fn populateGridArena(arena: *main_module.ParticleArena, comptime which: Positions) void {
     clearGrid();
     const count = arena.getDenseCount();
     for (0..count) |i| {
         const particle = arena.getDataAt(@intCast(i));
-        const cell = getGridCell(particle.x, particle.y);
-        cell.add(@intCast(i));
+        const px = if (which == .predicted) particle.predicted_x else particle.x;
+        const py = if (which == .predicted) particle.predicted_y else particle.y;
+        const cell = getGridCell(px, py);
+        cell.add(@intCast(i), px, py);
         if (cell.count > max_occupancy) {
             max_occupancy = cell.count;
         }

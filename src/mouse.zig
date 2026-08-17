@@ -100,7 +100,7 @@ pub fn findParticlesInGrabRadius() [MAX_GRAB_PARTICLES]main.ParticleHandle {
                 
                 // Check all particles in this cell
                 for (0..cell.count) |i| {
-                    const particle_dense_index = cell.particles[i];
+                    const particle_dense_index = cell.idx[i];
                     
                     // Get the particle handle from dense array
                     if (main.getParticleHandleByIndex(particle_dense_index)) |particle_handle| {

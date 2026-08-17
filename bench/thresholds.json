@@ -1,6 +1,6 @@
 {
   "fast": {
-    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10).",
+    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10). memoryPagesMax TEMPORARILY 197 (slice 1 SoA cells at 64 slots, 2026-08-17); slice 2 (20 px bins, 16-slot cells) must bring it below 119 again.",
     "_setFrom": {
       "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
       "git": "9e0a61d",
@@ -19,7 +19,7 @@
       "S7[6]": 1.91,
       "S7[12]": 3.749
     },
-    "memoryPagesMax": 119,
+    "memoryPagesMax": 197,
     "stackHwmBytesMax": 91107,
     "wasmBytesMax": 853088
   },

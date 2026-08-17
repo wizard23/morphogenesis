@@ -3,25 +3,25 @@
     "_note": "p95 ms/step ceilings = baseline × 1.25; ratchet down after kept wins. Memory ceilings are exact + margin.",
     "_setFrom": {
       "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-      "git": "4a595a0",
-      "wasmSha": "daa107f7cfe8",
-      "time": "2026-08-16T18:28:36.828Z",
+      "git": "8692356",
+      "wasmSha": "e3db7bc50828",
+      "time": "2026-08-17T05:05:53.201Z",
       "scenarioVersion": 1
     },
     "p95StepMs": {
-      "S1": 4.151,
-      "S2": 6.13,
-      "S3": 32.865,
-      "S4": 26.098,
-      "S5": 3.032,
-      "S7[1]": 1.248,
-      "S7[3]": 3.733,
-      "S7[6]": 4.255,
-      "S7[12]": 9.18
+      "S1": 2.623,
+      "S2": 2.076,
+      "S3": 11.764,
+      "S4": 14.367,
+      "S5": 2.047,
+      "S7[1]": 0.944,
+      "S7[3]": 1.273,
+      "S7[6]": 2.005,
+      "S7[12]": 3.812
     },
-    "memoryPagesMax": 519,
+    "memoryPagesMax": 253,
     "stackHwmBytesMax": 475913,
-    "wasmBytesMax": 1899218
+    "wasmBytesMax": 1902292
   },
   "browser": {
     "swiftshader": {

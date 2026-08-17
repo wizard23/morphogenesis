@@ -36,6 +36,12 @@ console.log("== ReleaseFast run 2 (self-consistency) ==");
 const run2 = await runAll({ mode: "ReleaseFast", only: args.only, quiet: true, gate: true });
 printResults(run1.results);
 
+console.log("\n== history independence (S2 rerun after all scenarios ≡ S2 earlier in the same run) ==");
+{
+  const s2 = run1.results.find((r) => r.id === "S2");
+  if (s2 && run1.tail?.S2) (run1.tail.S2.checksum === s2.checksum ? ok : fail)(`S2 after full sequence ${run1.tail.S2.checksumHex} vs earlier ${s2.checksumHex}${run1.tail.S2.checksum === s2.checksum ? "" : " — state leaks across reset()"}`);
+}
+
 console.log("\n== self-consistency ==");
 for (const r of run1.results) {
   const r2 = run2.results.find((x) => x.id === r.id);
@@ -84,6 +90,7 @@ if (args.flags.has("set-thresholds") || !t) {
     if (r.p95 > ceiling) fail(`${r.id}: p95 ${r.p95.toFixed(3)} ms > ceiling ${ceiling} ms`);
     else ok(`${r.id} p95 ${r.p95.toFixed(3)} ms ≤ ${ceiling} ms`);
   }
+  for (const r of run1.results) if (r.counters.cell_overflow > 0) fail(`${r.id}: spatial cell overflow ${r.counters.cell_overflow}/frame — collisions missed`);
   const pages = Math.max(...run1.results.map((r) => r.memoryPages));
   pages > t.memoryPagesMax ? fail(`linear memory ${pages} pages > ${t.memoryPagesMax}`) : ok(`linear memory ${pages} pages ≤ ${t.memoryPagesMax}`);
   const hwm = Math.max(...run1.results.map((r) => r.stackHwm.bytes));

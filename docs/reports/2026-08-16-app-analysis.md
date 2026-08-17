@@ -243,3 +243,22 @@ Ordered roughly by impact. Line references are to the analyzed commit.
 - Read all tracked source files (`src/*.zig`, `*.js`, `*.html`, `*.css`, build & tooling files, README, claude.md).
 - `zig build -Doptimize=ReleaseFast` with Zig 0.16.0 → success, `zig-out/bin/webgpu-demo.wasm` (1.8 MB).
 - Findings in §8 are from static reading; the app was not exercised in a browser for this report.
+
+---
+
+## Status update — 2026-08-17
+
+Measured work since this report (each step in `docs/progress/performance/2026/08/`):
+
+| Finding | Status |
+|---|---|
+| §8.1 #1 dangling stack slices | **fixed** (accessors removed, arena read directly) |
+| §8.1 #2 drag dead after Reset | **fixed** (`reset()` re-inits arenas before spawning the mouse); the harness first showed it as *history-dependent physics* (S6 checksum depended on the preceding scenario) |
+| §8.1 #3 `u8` valence underflow | **fixed** (saturating refund) — caught by the Debug gate once the drag worked |
+| §8.1 #4 mouse-line index mismatch | open |
+| §8.1 #5/#6 velocity effects / XPBD semantics | open (design decision pending) |
+| §8.2 collision scan / bins | 60 → 30 px bins + loop hoists: S2 −30 %, S3 −40 %, S4 −51 %, S6 −61 % |
+| §8.2 stack copies (`gen_grid`) | measured at 1–3 % of the step — *not* a time problem; still a stack/memory smell |
+| §8.2 static memory | spatial cells 500 → 64 slots: 34.0 → 15.8 MB linear memory; overflow now counted and gated |
+| §8.2 O(n²) bond search | open — 27–49 % when valence is unsatisfied |
+| Debug build | had never run (1 MiB shadow stack overflow at init) — 4 MiB stack; root cause (by-value arena init) open |

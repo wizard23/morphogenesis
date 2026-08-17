@@ -16,6 +16,7 @@ const Spring = main.Spring;
 const MAX_SPRINGS = main.MAX_SPRINGS;
 const PARTICLE_SIZE = main.PARTICLE_SIZE;
 const PARTICLE_COUNT = main.PARTICLE_COUNT;
+const NO_INDEX: u32 = 0xFFFFFFFF;
 
 // Unified constraint type to reduce code duplication
 pub const ConstraintType = enum {
@@ -141,9 +142,10 @@ pub const PhysicsSystem = struct {
                         springs_to_remove[remove_count] = spring_handle;
                         remove_count += 1;
 
-                        // Refund valence
-                        particle_a.?.current_valence = @max(0, particle_a.?.current_valence - 1);
-                        particle_b.?.current_valence = @max(0, particle_b.?.current_valence - 1);
+                        // Refund valence (saturating: mouse springs never counted, so the mouse
+                        // particle sits at 0 — plain `- 1` panics in Debug / wraps in ReleaseFast)
+                        particle_a.?.current_valence -|= 1;
+                        particle_b.?.current_valence -|= 1;
                     }
                 } else if (self.constraint_count < self.constraints.len) {
                     var constraint = Constraint.initDistance(spring.particle_a, spring.particle_b, spring.rest_length, distance_stiffness, dt);
@@ -175,14 +177,17 @@ pub const PhysicsSystem = struct {
         self.particle_arena.fillDenseArray(temp_particles[0..particle_count]);
         spatial.populateGrid(temp_particles[0..particle_count], particle_count);
         perf.max(.bin_max, spatial.getMaxOccupancy());
+        perf.count(.cell_overflow, spatial.getOverflowCount());
         perf.add(.gen_grid, t0);
 
         t0 = perf.now();
+        // Dense index of the mouse particle (or none): lets the inner loop skip it by index instead
+        // of comparing handles per neighbour.
+        const mouse_dense: u32 = if (mouse.mouse_particle) |mh| (self.particle_arena.getDenseIndex(mh) orelse NO_INDEX) else NO_INDEX;
         for (0..particle_count) |i| {
+            if (i == mouse_dense) continue;
             const handle = self.particle_arena.getHandleAt(@intCast(i));
-            if (!mouse.isMouseParticle(handle)) {
-                self.generateCollisionConstraintsForParticle(handle, @intCast(i), dt, collision_stiffness);
-            }
+            self.generateCollisionConstraintsForParticle(handle, @intCast(i), mouse_dense, dt, collision_stiffness);
         }
         perf.count(.collision_pairs, self.constraint_count - spring_constraint_count);
         perf.count(.constraints, self.constraint_count);
@@ -193,10 +198,15 @@ pub const PhysicsSystem = struct {
         self: *Self,
         particle_handle: ParticleHandle,
         particle_dense_idx: u32,
+        mouse_dense: u32,
         dt: f32,
         collision_stiffness: f32,
     ) void {
         const particle = self.particle_arena.getDataAt(particle_dense_idx);
+        const dense_count = self.particle_arena.getDenseCount();
+        const contact_distance = PARTICLE_SIZE * 2.0;
+        const contact_distance_sq = contact_distance * contact_distance;
+        const billiard_stiffness = collision_stiffness * 10.0;
 
         // Use current position for spatial lookup (since that's what was populated)
         const gx = spatial.worldToGridX(particle.x);
@@ -217,33 +227,31 @@ pub const PhysicsSystem = struct {
                     for (0..cell.count) |i| {
                         const neighbor_index = cell.particles[i];
 
-                        if (neighbor_index >= self.particle_arena.getDenseCount()) continue;
+                        if (neighbor_index >= dense_count) continue;
+                        if (neighbor_index == particle_dense_idx or neighbor_index == mouse_dense) continue;
                         const neighbor_handle = self.particle_arena.getHandleAt(neighbor_index);
+                        // Each unordered pair once: the lower sparse index owns it.
+                        if (particle_handle.index >= neighbor_handle.index) continue;
 
-                        if (!neighbor_handle.eql(particle_handle) and
-                            particle_handle.index < neighbor_handle.index and
-                            !mouse.isMouseParticle(neighbor_handle))
-                        {
-                            const other = self.particle_arena.getDataAt(neighbor_index);
-                            const dx_pred = particle.predicted_x - other.predicted_x;
-                            const dy_pred = particle.predicted_y - other.predicted_y;
-                            const dist_sq = dx_pred * dx_pred + dy_pred * dy_pred;
+                        const other = self.particle_arena.getDataAt(neighbor_index);
+                        const dx_pred = particle.predicted_x - other.predicted_x;
+                        const dy_pred = particle.predicted_y - other.predicted_y;
+                        const dist_sq = dx_pred * dx_pred + dy_pred * dy_pred;
 
-                            const ball_radius = PARTICLE_SIZE;
-                            const contact_distance = ball_radius * 2.0;
-                            const current_distance = @sqrt(dist_sq);
+                        // Cheap exact reject: dist_sq >= c² ⇒ sqrt(dist_sq) >= c (sqrt is monotone,
+                        // c² exact), so the sqrt below is only reached for candidate contacts and
+                        // its result is unchanged.
+                        if (dist_sq >= contact_distance_sq) continue;
+                        const current_distance = @sqrt(dist_sq);
 
-                            if (current_distance < contact_distance) {
-                                if (self.constraint_count < self.constraints.len) {
-                                    const billiard_stiffness = collision_stiffness * 10.0;
+                        if (current_distance < contact_distance) {
+                            if (self.constraint_count < self.constraints.len) {
+                                var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance, billiard_stiffness, dt);
+                                constraint.dense_a = particle_dense_idx;
+                                constraint.dense_b = neighbor_index;
 
-                                    var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance, billiard_stiffness, dt);
-                                    constraint.dense_a = particle_dense_idx;
-                                    constraint.dense_b = neighbor_index;
-
-                                    self.constraints[self.constraint_count] = constraint;
-                                    self.constraint_count += 1;
-                                }
+                                self.constraints[self.constraint_count] = constraint;
+                                self.constraint_count += 1;
                             }
                         }
                     }

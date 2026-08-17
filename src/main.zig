@@ -252,6 +252,11 @@ fn predictPositionsForAliveParticles(dt: f32) void {
         }
         const particle = particle_arena.getDataAt(@intCast(i));
         particle.predictPosition(dt);
+        if (perf.enabled) {
+            const ddx = particle.predicted_x - particle.x;
+            const ddy = particle.predicted_y - particle.y;
+            perf.max(.max_step_disp_milli, @intFromFloat(@sqrt(ddx * ddx + ddy * ddy) * 1000.0));
+        }
     }
 }
 
@@ -291,30 +296,22 @@ fn countValenceFromAlivesprings() void {
 }
 
 pub fn getParticleHandleByIndex(index: u32) ?ParticleHandle {
-    const dense_handles = particle_arena.getDenseHandles();
-    const dense_count = particle_arena.getDenseCount();
-
-    if (index >= dense_count) return null;
-    return dense_handles[index];
+    if (index >= particle_arena.getDenseCount()) return null;
+    return particle_arena.getHandleAt(index);
 }
 
 pub fn getParticleByIndex(index: u32) ?Particle {
-    const dense_particles = particle_arena.getDenseData();
-    const dense_count = particle_arena.getDenseCount();
-
-    if (index >= dense_count) return null;
-    return dense_particles[index];
+    if (index >= particle_arena.getDenseCount()) return null;
+    return particle_arena.getDataAt(index).*;
 }
 
 pub fn findClosestParticleIndex(target_x: f32, target_y: f32) u32 {
     var closest_index: u32 = 0;
     var closest_distance_sq: f32 = std.math.inf(f32);
 
-    const dense_particles = particle_arena.getDenseData();
     const dense_count = particle_arena.getDenseCount();
-
     for (0..dense_count) |i| {
-        const particle = &dense_particles[i];
+        const particle = particle_arena.getDataAt(@intCast(i));
         const dx = target_x - particle.x;
         const dy = target_y - particle.y;
         const distance_sq = dx * dx + dy * dy;
@@ -460,14 +457,17 @@ pub export fn init() void {
 pub export fn reset() void {
     log("Resetting particle system...", .{});
 
-    mouse.initMouseSystem();
-
     initializeParticleSystems();
     initializeSpringSystems();
     initializePhysicsSystem();
 
     reset_module.initializeGridParticles();
     reset_module.initializeFreeAgents();
+
+    // After the arenas exist: the mouse particle must live in the *new* arena. (Spawning it before
+    // the re-init left a stale handle that could later alias a painted particle — history-dependent
+    // physics, found by the harness 2026-08-17.)
+    mouse.initMouseSystem();
 
     initializeValenceCounts();
 
@@ -572,6 +572,15 @@ export fn get_spatial_max_occupancy() i32 {
     return @as(i32, @intCast(spatial.getMaxOccupancy()));
 }
 
+export fn get_spatial_cell_capacity() i32 {
+    return spatial.MAX_PARTICLES_PER_CELL;
+}
+
+/// Particles dropped from a full spatial cell in the last grid population (must be 0).
+export fn get_spatial_overflow_count() i32 {
+    return @as(i32, @intCast(spatial.getOverflowCount()));
+}
+
 export fn get_max_springs() i32 {
     return MAX_SPRINGS;
 }
@@ -620,7 +629,7 @@ export fn get_particle_current_valence(particle_index: i32) i32 {
     return 0;
 }
 
-export fn add_particle(x: f32, y: f32, valence: u32) void {
+pub export fn add_particle(x: f32, y: f32, valence: u32) void {
     if (!particles_initialized) return;
 
     if (particle_arena.getAliveCount() >= PARTICLE_COUNT) {
@@ -697,7 +706,7 @@ export fn get_bulk_spring_count() i32 {
     return @intCast(getSpringCount());
 }
 
-export fn set_mouse_interaction(x: f32, y: f32, pressed: bool) void {
+pub export fn set_mouse_interaction(x: f32, y: f32, pressed: bool) void {
     mouse.updateMousePosition(x, y);
     mouse.setMousePressed(pressed);
 }
@@ -717,7 +726,7 @@ export fn get_mouse_position_y() f32 {
     return mouse.getMousePositionY();
 }
 
-export fn get_mouse_grab_count() i32 {
+pub export fn get_mouse_grab_count() i32 {
     return @intCast(mouse.getGrabCount());
 }
 

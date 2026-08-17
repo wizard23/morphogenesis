@@ -84,6 +84,69 @@ test "determinism: same scene + same steps → same checksum (self-consistency)"
     try testing.expect(main.get_alive_particle_count() > 0);
 }
 
+test "determinism: reset() is history-independent (mouse handle lives in the new arena)" {
+    main.init();
+    const fresh = runScenario(60);
+    // A different history: paint many particles, then reset and run the same scenario.
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..3000) |i| {
+        const col: i32 = @intCast(i % 60);
+        const row: i32 = @intCast(i / 60);
+        main.add_particle(@floatFromInt(col * 10 - 300), @floatFromInt(row * 10 - 250), 0);
+    }
+    for (0..30) |_| main.update_particles(0.016);
+    const after_history = runScenario(60);
+    try testing.expectEqual(fresh, after_history);
+}
+
+test "mouse: a press after reset() grabs particles and the drag changes the state" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..100) |_| main.update_particles(0.016);
+    const before = perf.stateChecksum();
+    // grid 0 is centred at (-200, -200); press there and pull
+    main.set_mouse_interaction(-200, -200, true);
+    try testing.expect(main.get_mouse_grab_count() > 0);
+    for (0..30) |i| {
+        main.set_mouse_interaction(-200 + @as(f32, @floatFromInt(i)) * 2.0, -200, true);
+        main.update_particles(0.016);
+    }
+    main.set_mouse_interaction(0, 0, false);
+    // Compare against the same 30 steps without dragging from the same start
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..100) |_| main.update_particles(0.016);
+    try testing.expectEqual(before, perf.stateChecksum());
+    for (0..30) |_| main.update_particles(0.016);
+    const undragged = perf.stateChecksum();
+    // and re-run the drag to get its checksum
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..100) |_| main.update_particles(0.016);
+    main.set_mouse_interaction(-200, -200, true);
+    for (0..30) |i| {
+        main.set_mouse_interaction(-200 + @as(f32, @floatFromInt(i)) * 2.0, -200, true);
+        main.update_particles(0.016);
+    }
+    main.set_mouse_interaction(0, 0, false);
+    try testing.expect(perf.stateChecksum() != undragged);
+}
+
+test "valence refund saturates at 0 when a mouse spring breaks (Debug safety)" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..100) |_| main.update_particles(0.016);
+    // grab, then yank the mouse far away so the mouse springs exceed 10× rest length and break
+    main.set_mouse_interaction(-200, -200, true);
+    try testing.expect(main.get_mouse_grab_count() > 0);
+    main.set_mouse_interaction(700, 400, true);
+    for (0..5) |_| main.update_particles(0.016); // would panic on u8 underflow before the fix
+    main.set_mouse_interaction(0, 0, false);
+}
+
 test "perf: stack high-water mark reports use below the reset frame" {
     perf.perf_reset();
     // update_particles has large stack temporaries (see analysis report)

@@ -48,7 +48,7 @@ for (const mode of modes) {
 // Static budgets derived from the constants in src/*.zig (kept in sync by hand; verified against pages).
 const PARTICLE_COUNT = 3 * 144 + 500 + 10000, MAX_SPRINGS = 3 * 144 * 4 + 10000 * 2, MAX_CONSTRAINTS = MAX_SPRINGS + 50000;
 const staticEstimates = [
-  ["spatial_grid (100×100 cells × (500×4+4) B)", 100 * 100 * (500 * 4 + 4)],
+  ["spatial_grid (100×100 cells × (64×4+4) B)", 100 * 100 * (64 * 4 + 4)],
   ["constraints (MAX_CONSTRAINTS × ~100 B)", MAX_CONSTRAINTS * 100],
   ["particle_arena (entries ~44 B + maps ~8 B) × PARTICLE_COUNT", PARTICLE_COUNT * 52],
   ["spring_arena (entries 16 B + maps 8 B) × MAX_SPRINGS", MAX_SPRINGS * 24],

@@ -43,7 +43,8 @@ in every note — compare only matched headers.
 |---|---|---|
 | `p50/p95/p99/max` ms per `update_particles` | Node `hrtime` around the export; median over bursts | **primary** |
 | phase means: `predict, mouse, bonds, gen_springs, gen_grid, gen_collide, solve, commit` | `src/perf.zig` ring via imported `perf_now` (`-Dperf=true`) | **attribution** — which phase moved |
-| `constr/it`, `coll/it`, `bin`, `bonds_formed`, `springs_removed` | `perf.zig` counters | workload descriptors — compare only when similar |
+| `constr/it`, `coll/it`, `bin`, `bonds_formed`, `springs_removed` | `perf.zig` counters | workload descriptors — compare only when similar. **Not** an oracle across a constraint-*ordering* change: trajectories diverge, so counts move even when the contact set per state is identical (learned 2026-08-17) |
+| `disp px` | `perf.zig` `max_step_disp_milli` | max per-step displacement; must stay < spatial bin − contact (20 px at 30 px bins) or the 3×3 collision scan misses pairs |
 | `P`, `S` (alive particles / springs) | exports | workload |
 | checksum | FNV-1a over dense state (`state_checksum`) | **correctness oracle** |
 | stack HWM | sentinel-painted shadow stack (`perf_stack_hwm`, `+` = saturated probe) | memory |
@@ -90,12 +91,12 @@ similar `constr/it` and `S` · warm-up plateaued.
   plateau check. If it says `plateau=NO`, don't trust the first scenario's numbers.
 - **`gen_collide` dominates** (58–88 % at baseline). A change elsewhere will look "flat" in total
   ms — read the phase table, not just p50.
-- **S5 (drag) currently equals S2** — the mouse handle is stale after `reset()` (known bug); the
-  scenario is kept so the fix has to make it diverge.
+- **S5 (drag) must differ from S2** (`grabs > 0`, springs break under the drag). Until 2026-08-17 it
+  didn't (stale mouse handle after `reset()`, and the scenario pressed where the lattice used to be) —
+  both fixed; the gate's history-independence check (S2 rerun after all scenarios) guards the former.
 - **Tier 1 vs Tier 2 sim time differ** at baseline (S2: 3.0 ms in Node vs 4.9 ms in Chromium, same wasm,
   same state). Not yet explained (main-thread interleaving with rendering? V8 flags?). Until it is,
   compare Node-to-Node and browser-to-browser only.
-- Tier 2 `grabs` is not a correctness oracle for the drag (grab_count increments even with a stale
-  mouse handle); the checksum divergence S5≠S2 is.
+- Tier 2 `grabs` counts presses, not effect; the checksum divergence S5≠S2 is the drag oracle.
 - Stack HWM `+` means the probe saturated (real use ≥ probe); the probe covers the whole shadow
   stack on wasm, so `+` there means overflow is imminent.

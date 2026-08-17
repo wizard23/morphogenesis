@@ -152,14 +152,6 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
             return dense_index;
         }
 
-        pub fn getDenseData(self: *const Self) []const T {
-            var data_array: [capacity]T = undefined;
-            for (0..self.count) |i| {
-                data_array[i] = self.entries[i].data;
-            }
-            return data_array[0..self.count];
-        }
-
         pub fn fillDenseArray(self: *Self, out_array: []T) void {
             // Copy dense data into provided array
             for (0..@min(self.count, out_array.len)) |i| {
@@ -171,14 +163,6 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
             return &self.entries[index].data;
         }
 
-        pub fn getDenseHandles(self: *const Self) []const Handle {
-            var handles: [capacity]Handle = undefined;
-            for (0..self.count) |i| {
-                handles[i] = self.entries[i].handle;
-            }
-            return handles[0..self.count];
-        }
-        
         pub fn getHandleAt(self: *const Self, index: u32) Handle {
             return self.entries[index].handle;
         }
@@ -189,15 +173,6 @@ pub fn GenerationalArena(comptime T: type, comptime capacity: u32) type {
 
         pub fn getDenseCount(self: *const Self) u32 {
             return self.count;
-        }
-
-        // These are now no-ops since we always maintain dense arrays
-        pub fn rebuildDenseArrays(self: *Self) void {
-            _ = self;
-        }
-
-        pub fn writeDenseToSparse(self: *Self) void {
-            _ = self;
         }
 
         // Iterator for dense data

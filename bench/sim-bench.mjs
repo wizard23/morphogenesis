@@ -6,7 +6,7 @@
 import { writeFileSync } from "node:fs";
 import { ensureWasm, instantiate } from "./lib/wasm-host.mjs";
 import { machineInfo, wasmInfo, formatHeader, PROFILE } from "./lib/machine.mjs";
-import { scenariosForProfile } from "./lib/scenarios.mjs";
+import { scenariosForProfile, SCENARIOS } from "./lib/scenarios.mjs";
 import { warmUp, runScenario, expandVariants } from "./lib/runner.mjs";
 import { printResults, markdownReport } from "./lib/report.mjs";
 
@@ -46,7 +46,13 @@ export async function runAll({ mode = "ReleaseFast", only = null, quiet = false,
     if (!quiet) console.log(`  ${r.id.padEnd(8)} ${r.title}  → p50 ${r.p50.toFixed(3)} ms  (${r.wallMs} ms wall)`);
     results.push(r);
   }
-  return { header, machine, wasm, mode, profile: PROFILE, warmup: warm, results, logs: host.logs };
+  // History-independence probe: S2 again after everything else (compared by sim-assert).
+  const tail = {};
+  if (!only || only.has("S2")) {
+    const s2 = SCENARIOS.find((s) => s.id === "S2");
+    tail.S2 = runScenario(host, s2, { profile: PROFILE });
+  }
+  return { header, machine, wasm, mode, profile: PROFILE, warmup: warm, results, tail, logs: host.logs };
 }
 
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;

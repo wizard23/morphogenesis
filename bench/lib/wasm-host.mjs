@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
 export const PHASES = ["predict", "mouse", "bonds", "gen_springs", "gen_grid", "gen_collide", "solve", "commit"];
-export const COUNTERS = ["constraints", "collision_pairs", "bonds_formed", "springs_removed", "bin_max", "iterations"];
+export const COUNTERS = ["constraints", "collision_pairs", "bonds_formed", "springs_removed", "bin_max", "iterations", "max_step_disp_milli", "cell_overflow"];
 
 /** Build (if needed) and return the path of a perf-instrumented wasm for `mode` (ReleaseFast|Debug). */
 export function ensureWasm(mode = "ReleaseFast", { force = false } = {}) {
@@ -74,7 +74,7 @@ export async function instantiate(wasmPath) {
       const frames = Math.max(1, e.perf_frames());
       const out = {};
       COUNTERS.forEach((name, i) => {
-        out[name] = name === "bin_max" ? e.perf_counter_total(i) : e.perf_counter_total(i) / frames;
+        out[name] = (name === "bin_max" || name === "max_step_disp_milli") ? e.perf_counter_total(i) : e.perf_counter_total(i) / frames;
       });
       return out;
     },

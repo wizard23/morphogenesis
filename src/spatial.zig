@@ -4,10 +4,15 @@ const std = @import("std");
 const main_module = @import("main.zig");
 const BASE_WORLD_SIZE = main_module.WORLD_SIZE;
 
-// Spatial partitioning grid for O(n) performance
-// Fixed bin size = 10 particle diameters
-pub const BIN_SIZE_PIXELS = 6.0 * (2.0 * main_module.PARTICLE_SIZE);
-pub const MAX_PARTICLES_PER_CELL = 500;
+// Spatial partitioning grid for O(n) performance.
+// Bin size in particle diameters. Must stay ≥ the largest 3×3-neighbourhood query: contact
+// distance (1 diameter) and the mouse grab radius (2.5 diameters). Measured 2026-08-17: 6 → 3
+// halves gen_collide (see docs/progress/performance/2026/08).
+pub const BIN_SIZE_PIXELS = 3.0 * (2.0 * main_module.PARTICLE_SIZE);
+// Physical maximum for 30 px cells and 10 px particles is ~16 (measured max 14 at 6 XPBD
+// iterations, 35 at 1 iteration where the solver leaves overlaps). Overflow is counted
+// (`overflow_count`) and gated in bench/sim-assert; it must be 0.
+pub const MAX_PARTICLES_PER_CELL = 64;
 
 // Dynamic grid size based on world dimensions and fixed bin size
 pub var grid_size_x: u32 = 0;
@@ -35,6 +40,8 @@ pub const GridCell = struct {
         if (self.count < MAX_PARTICLES_PER_CELL) {
             self.particles[self.count] = particle_index;
             self.count += 1;
+        } else {
+            overflow_count += 1;
         }
     }
 };
@@ -47,6 +54,8 @@ const MAX_GRID_CELLS = MAX_GRID_SIZE * MAX_GRID_SIZE;
 pub var spatial_grid: [MAX_GRID_CELLS]GridCell = undefined;
 var grid_initialized = false;
 var max_occupancy: u32 = 0;
+/// Particles dropped because their cell was full (since the last clearGrid). Missed collisions.
+var overflow_count: u32 = 0;
 
 // Helper to convert 2D coords to flat index
 inline fn gridIndex(x: u32, y: u32) u32 {
@@ -104,6 +113,7 @@ pub fn initializeGrid() void {
 
 pub fn clearGrid() void {
     max_occupancy = 0;
+    overflow_count = 0;
     const total_cells = grid_size_x * grid_size_y;
     for (0..total_cells) |i| {
         spatial_grid[i].clear();
@@ -127,6 +137,10 @@ pub fn populateGrid(particles: anytype, particle_count: u32) void {
 // Get current maximum bin occupancy
 pub fn getMaxOccupancy() u32 {
     return max_occupancy;
+}
+
+pub fn getOverflowCount() u32 {
+    return overflow_count;
 }
 
 // Get grid dimensions

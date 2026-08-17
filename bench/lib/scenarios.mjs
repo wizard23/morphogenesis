@@ -19,6 +19,15 @@ export function paintBlock(e, { cx, cy, cols, rows, spacing, valence }) {
   return n;
 }
 
+/** [x, y] of the particle at dense index i (from the bulk render buffer). */
+export function particlePosition(e, i) {
+  const n = e.get_bulk_particle_count();
+  if (i >= n) throw new Error(`particle ${i} out of range (${n})`);
+  const ptr = e.get_particle_data_bulk();
+  const view = new Float32Array(e.memory.buffer, ptr, n * 4);
+  return [view[i * 4], view[i * 4 + 1]];
+}
+
 export function step(e, n) {
   for (let i = 0; i < n; i++) e.update_particles(DT);
 }
@@ -66,14 +75,19 @@ export const SCENARIOS = [
     },
   },
   {
-    // NOTE (baseline 2026-08-16): after reset() the mouse particle handle is stale (analysis report
-    // §8.1 #2), so the drag currently has NO effect — S5 checksum equals S2 and grabCount is 0.
-    // Kept as-is per plan §0a; the fix is a measured change that must make this scenario diverge.
-    id: "S5", key: "drag", title: "S2 + scripted circular mouse drag (r=100) around lattice 0",
-    setup(e) { freshScene(e); step(e, 600); e.set_mouse_interaction(-200, -200, true); },
+    // Presses on an actual particle (dense index 0, read from the bulk buffer) — the lattice has
+    // fallen to the floor after the settle, so a fixed press position would grab nothing.
+    // History: until 2026-08-17 the drag had no effect (stale mouse handle after reset(), fixed).
+    id: "S5", key: "drag", title: "S2 + press on particle 0, circular drag (r=60) around it",
+    setup(e) {
+      freshScene(e); step(e, 600);
+      const [x, y] = particlePosition(e, 0);
+      this._cx = x; this._cy = y;
+      e.set_mouse_interaction(x, y, true);
+    },
     drive(e, i) {
       const a = (i / 300) * 2 * Math.PI;
-      e.set_mouse_interaction(-200 + 100 * Math.cos(a), -200 + 100 * Math.sin(a), true);
+      e.set_mouse_interaction(this._cx + 60 * Math.cos(a), this._cy + 60 * Math.sin(a), true);
     },
     teardown(e) { e.set_mouse_interaction(0, 0, false); },
   },

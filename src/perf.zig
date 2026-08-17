@@ -41,6 +41,11 @@ pub const Counter = enum(u8) {
     bin_max,
     /// XPBD iterations executed.
     iterations,
+    /// Max |predicted − x| over particles in the frame, in 1/1000 px (max, not sum). Must stay
+    /// below spatial bin size − contact distance for the 3×3 collision scan to be exhaustive.
+    max_step_disp_milli,
+    /// Spatial cell overflows (sum over the frame's grid populations). Must be 0.
+    cell_overflow,
 };
 pub const COUNTER_COUNT = @typeInfo(Counter).@"enum".fields.len;
 
@@ -92,7 +97,8 @@ pub inline fn endFrame() void {
     if (ring_count < RING_FRAMES) ring_count += 1;
     for (0..COUNTER_COUNT) |c| {
         last_frame_counters[c] = frame_counters[c];
-        if (@as(Counter, @enumFromInt(c)) == .bin_max) {
+        const kind: Counter = @enumFromInt(c);
+        if (kind == .bin_max or kind == .max_step_disp_milli) {
             if (frame_counters[c] > total_counters[c]) total_counters[c] = frame_counters[c];
         } else {
             total_counters[c] += frame_counters[c];

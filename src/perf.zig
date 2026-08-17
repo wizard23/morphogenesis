@@ -46,6 +46,11 @@ pub const Counter = enum(u8) {
     max_step_disp_milli,
     /// Spatial cell overflows (sum over the frame's grid populations). Must be 0.
     cell_overflow,
+    /// Max |final predicted − predicted at constraint generation| over particles, in 1/1000 px (max).
+    /// Must stay below physics.CONTACT_MARGIN: the collision candidate set is fixed for the step.
+    max_solve_disp_milli,
+    /// Constraints not stored because the array was full (sum). Must be 0 — missed springs/contacts.
+    constraints_dropped,
 };
 pub const COUNTER_COUNT = @typeInfo(Counter).@"enum".fields.len;
 
@@ -83,14 +88,30 @@ pub inline fn max(counter: Counter, v: u32) void {
     if (v > frame_counters[i]) frame_counters[i] = v;
 }
 
+/// Max of a squared distance for a `*_milli` counter; converted with ONE sqrt at endFrame (no
+/// per-particle sqrt on the hot path).
+var frame_max_dist_sq: [COUNTER_COUNT]f32 = [_]f32{0} ** COUNTER_COUNT;
+pub inline fn maxDistSq(counter: Counter, dist_sq: f32) void {
+    if (!enabled) return;
+    const i = @intFromEnum(counter);
+    if (dist_sq > frame_max_dist_sq[i]) frame_max_dist_sq[i] = dist_sq;
+}
+
 pub inline fn beginFrame() void {
     if (!enabled) return;
     @memset(&frame_phase_ms, 0);
     @memset(&frame_counters, 0);
+    @memset(&frame_max_dist_sq, 0);
 }
 
 pub inline fn endFrame() void {
     if (!enabled) return;
+    for (0..COUNTER_COUNT) |c| {
+        if (frame_max_dist_sq[c] > 0) {
+            const milli: u32 = @intFromFloat(@sqrt(frame_max_dist_sq[c]) * 1000.0);
+            if (milli > frame_counters[c]) frame_counters[c] = milli;
+        }
+    }
     const base = ring_head * PHASE_COUNT;
     for (0..PHASE_COUNT) |p| ring[base + p] = frame_phase_ms[p];
     ring_head = (ring_head + 1) % RING_FRAMES;
@@ -98,7 +119,7 @@ pub inline fn endFrame() void {
     for (0..COUNTER_COUNT) |c| {
         last_frame_counters[c] = frame_counters[c];
         const kind: Counter = @enumFromInt(c);
-        if (kind == .bin_max or kind == .max_step_disp_milli) {
+        if (kind == .bin_max or kind == .max_step_disp_milli or kind == .max_solve_disp_milli) {
             if (frame_counters[c] > total_counters[c]) total_counters[c] = frame_counters[c];
         } else {
             total_counters[c] += frame_counters[c];

@@ -105,24 +105,12 @@ pub const Particle = struct {
         self.predicted_x = self.x + self.vx * dt;
         self.predicted_y = self.y + self.vy * dt;
 
+        // World box: clamp the prediction. (No velocity flip: velocity is recomputed from positions at
+        // commit, so walls are inelastic — decision 2026-08-17.)
         const border_x = world_width / 2.0;
         const border_y = world_height / 2.0;
-        if (self.predicted_x > border_x) {
-            self.predicted_x = border_x;
-            self.vx *= -0.8;
-        }
-        if (self.predicted_x < -border_x) {
-            self.predicted_x = -border_x;
-            self.vx *= -0.8;
-        }
-        if (self.predicted_y > border_y) {
-            self.predicted_y = border_y;
-            self.vy *= -0.8;
-        }
-        if (self.predicted_y < -border_y) {
-            self.predicted_y = -border_y;
-            self.vy *= -0.8;
-        }
+        self.predicted_x = @min(border_x, @max(-border_x, self.predicted_x));
+        self.predicted_y = @min(border_y, @max(-border_y, self.predicted_y));
     }
 
     pub fn updateFromPrediction(self: *Self, dt: f32) void {
@@ -131,24 +119,6 @@ pub const Particle = struct {
 
         self.x = self.predicted_x;
         self.y = self.predicted_y;
-    }
-
-    pub fn applyBoundaryConstraints(self: *Self) void {
-        const border_x = world_width / 2.0;
-        const border_y = world_height / 2.0;
-
-        if (self.predicted_x > border_x) {
-            self.predicted_x = border_x;
-        }
-        if (self.predicted_x < -border_x) {
-            self.predicted_x = -border_x;
-        }
-        if (self.predicted_y > border_y) {
-            self.predicted_y = border_y;
-        }
-        if (self.predicted_y < -border_y) {
-            self.predicted_y = -border_y;
-        }
     }
 };
 
@@ -166,7 +136,9 @@ pub const Spring = struct {
     }
 };
 
-const MAX_CONSTRAINTS = MAX_SPRINGS + 50000; // Distance + collision constraints
+// Distance constraints (≤ MAX_SPRINGS) + collision candidates (~4–5 per particle at capacity with the
+// 1-diameter margin, slice 5). Saturation is counted (`constraints_dropped`) and gated; must be 0.
+const MAX_CONSTRAINTS = MAX_SPRINGS + 100000;
 var constraints: [MAX_CONSTRAINTS]physics.Constraint = undefined;
 
 var particle_arena: generational.GenerationalArena(Particle, PARTICLE_COUNT) = undefined;
@@ -255,7 +227,7 @@ fn predictPositionsForAliveParticles(dt: f32) void {
         if (perf.enabled) {
             const ddx = particle.predicted_x - particle.x;
             const ddy = particle.predicted_y - particle.y;
-            perf.max(.max_step_disp_milli, @intFromFloat(@sqrt(ddx * ddx + ddy * ddy) * 1000.0));
+            perf.maxDistSq(.max_step_disp_milli, ddx * ddx + ddy * ddy);
         }
     }
 }
@@ -268,6 +240,17 @@ fn updatePositionsForAliveParticles(dt: f32) void {
             continue;
         }
         const particle = particle_arena.getDataAt(@intCast(i));
+        if (perf.enabled) {
+            // Solver displacement this step: final prediction vs the prediction the constraints were
+            // generated from (recomputed exactly: x + v·dt clamped, v not yet updated).
+            const border_x = world_width / 2.0;
+            const border_y = world_height / 2.0;
+            const gx = @min(border_x, @max(-border_x, particle.x + particle.vx * dt));
+            const gy = @min(border_y, @max(-border_y, particle.y + particle.vy * dt));
+            const ddx = particle.predicted_x - gx;
+            const ddy = particle.predicted_y - gy;
+            perf.maxDistSq(.max_solve_disp_milli, ddx * ddx + ddy * ddy);
+        }
         particle.updateFromPrediction(dt);
     }
 }
@@ -507,7 +490,6 @@ pub export fn reset() void {
 }
 
 pub export fn update_particles(dt: f32) void {
-    const microDt = dt / @as(f32, @floatFromInt(xpbd_iterations));
     if (!particles_initialized) return;
 
     perf.beginFrame();
@@ -524,15 +506,12 @@ pub export fn update_particles(dt: f32) void {
     updateValenceBonds();
     perf.add(.bonds, t0);
 
-    // Use physics system to generate and solve constraints
+    // Constraints once per step (springs + collision candidates within the margin), then the XPBD
+    // iterations solve that fixed set with accumulating λ. dt is the full step for compliance.
+    physics_system.generateConstraints(dt, DISTANCE_STIFFNESS, COLLISION_STIFFNESS);
     for (0..xpbd_iterations) |_| {
-        physics_system.generateConstraints(
-            microDt,
-            DISTANCE_STIFFNESS,
-            COLLISION_STIFFNESS,
-        );
         t0 = perf.now();
-        physics_system.solveConstraints(microDt);
+        physics_system.solveConstraints();
         perf.add(.solve, t0);
         perf.count(.iterations, 1);
     }
@@ -555,7 +534,7 @@ pub fn collisionPairCountsForTest(dt: f32) CollisionPairCounts {
     }
     var brute: u32 = 0;
     const n = particle_arena.getDenseCount();
-    const contact = PARTICLE_SIZE * 2.0;
+    const contact = PARTICLE_SIZE * 2.0 + physics.CONTACT_MARGIN; // candidates, not just touching pairs
     for (0..n) |i| {
         if (mouse.isMouseParticle(particle_arena.getHandleAt(@intCast(i)))) continue;
         const a = particle_arena.getDataAt(@intCast(i));
@@ -641,6 +620,10 @@ export fn get_spatial_overflow_count() i32 {
 
 export fn get_max_springs() i32 {
     return MAX_SPRINGS;
+}
+
+export fn get_max_constraints() i32 {
+    return MAX_CONSTRAINTS;
 }
 
 export fn get_particle_size() f32 {

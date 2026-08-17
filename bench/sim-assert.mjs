@@ -93,6 +93,7 @@ if (args.flags.has("set-thresholds") || !t) {
     else ok(`${r.id} p95 ${r.p95.toFixed(3)} ms ≤ ${ceiling} ms`);
   }
   for (const r of run1.results) if (r.counters.cell_overflow > 0) fail(`${r.id}: spatial cell overflow ${r.counters.cell_overflow}/frame — collisions missed`);
+  for (const r of run1.results) if (r.counters.constraints_dropped > 0) fail(`${r.id}: ${r.counters.constraints_dropped} constraints/frame dropped (MAX_CONSTRAINTS saturated)`);
   const pages = Math.max(...run1.results.map((r) => r.memoryPages));
   pages > t.memoryPagesMax ? fail(`linear memory ${pages} pages > ${t.memoryPagesMax}`) : ok(`linear memory ${pages} pages ≤ ${t.memoryPagesMax}`);
   const hwm = Math.max(...run1.results.map((r) => r.stackHwm.bytes));

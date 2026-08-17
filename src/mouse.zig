@@ -84,11 +84,12 @@ pub fn findParticlesInGrabRadius() [MAX_GRAB_PARTICLES]main.ParticleHandle {
     const gx = spatial.worldToGridX(mouse_position_x);
     const gy = spatial.worldToGridY(mouse_position_y);
     
-    // Check the mouse cell and 8 surrounding cells
-    var dy: i32 = -1;
-    while (dy <= 1 and found_count < MAX_GRAB_PARTICLES) : (dy += 1) {
-        var dx: i32 = -1;
-        while (dx <= 1 and found_count < MAX_GRAB_PARTICLES) : (dx += 1) {
+    // Scan enough cells on each side to cover GRAB_RADIUS (bins are smaller than the grab radius)
+    const reach = spatial.cellsForRadius(GRAB_RADIUS);
+    var dy: i32 = -reach;
+    while (dy <= reach and found_count < MAX_GRAB_PARTICLES) : (dy += 1) {
+        var dx: i32 = -reach;
+        while (dx <= reach and found_count < MAX_GRAB_PARTICLES) : (dx += 1) {
             const check_x = gx + dx;
             const check_y = gy + dy;
             

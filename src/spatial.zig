@@ -5,14 +5,22 @@ const main_module = @import("main.zig");
 const BASE_WORLD_SIZE = main_module.WORLD_SIZE;
 
 // Spatial partitioning grid for O(n) performance.
-// Bin size in particle diameters. Must stay ≥ the largest 3×3-neighbourhood query: contact
-// distance (1 diameter) and the mouse grab radius (2.5 diameters). Measured 2026-08-17: 6 → 3
-// halves gen_collide (see docs/progress/performance/2026/08).
-pub const BIN_SIZE_PIXELS = 3.0 * (2.0 * main_module.PARTICLE_SIZE);
-// Physical maximum for 30 px cells and 10 px particles is ~16 (measured max 14 at 6 XPBD
+// Bin size in particle diameters. A 3×3 scan finds every pair closer than (bin − per-step
+// displacement); contact is 1 diameter and the measured displacement is ≤ 0.4 diameter at ≥ 3 XPBD
+// iterations, so 2 diameters is the smallest safe bin (slice 2, 2026-08-17; was 6, then 3).
+// Larger query radii (mouse grab, 2.5 diameters) widen their scan instead: see GRAB_SEARCH_CELLS.
+pub const BIN_SIZE_PIXELS = 2.0 * (2.0 * main_module.PARTICLE_SIZE);
+/// Effective bin size: BIN_SIZE_PIXELS, or larger when the world would need more than MAX_GRID_SIZE
+/// bins per axis (large screens) — bigger cells stay exhaustive, clamping to the edge cell would not.
+pub var bin_size: f32 = BIN_SIZE_PIXELS;
+/// Cells a query of radius r must scan on each side: ceil(r / bin).
+pub fn cellsForRadius(radius: f32) i32 {
+    return @intFromFloat(@ceil(radius / bin_size));
+}
+// Physical maximum for 20 px cells and 10 px particles is ~4–7 (measured max 14 at 30 px / 6
 // iterations, 35 at 1 iteration where the solver leaves overlaps). Overflow is counted
 // (`overflow_count`) and gated in bench/sim-assert; it must be 0.
-pub const MAX_PARTICLES_PER_CELL = 64;
+pub const MAX_PARTICLES_PER_CELL = 24;
 
 // Dynamic grid size based on world dimensions and fixed bin size
 pub var grid_size_x: u32 = 0;
@@ -68,14 +76,14 @@ inline fn gridIndex(x: u32, y: u32) u32 {
 pub inline fn worldToGridX(world_x: f32) i32 {
     const world_width = main_module.get_world_width();
     const world_half_x = world_width / 2.0;
-    const grid_pos = @as(i32, @intFromFloat((world_x + world_half_x) / BIN_SIZE_PIXELS));
+    const grid_pos = @as(i32, @intFromFloat((world_x + world_half_x) / bin_size));
     return @max(0, @min(@as(i32, @intCast(grid_size_x)) - 1, grid_pos));
 }
 
 pub inline fn worldToGridY(world_y: f32) i32 {
     const world_height = main_module.get_world_height();
     const world_half_y = world_height / 2.0;
-    const grid_pos = @as(i32, @intFromFloat((world_y + world_half_y) / BIN_SIZE_PIXELS));
+    const grid_pos = @as(i32, @intFromFloat((world_y + world_half_y) / bin_size));
     return @max(0, @min(@as(i32, @intCast(grid_size_y)) - 1, grid_pos));
 }
 
@@ -96,8 +104,11 @@ pub fn updateGridDimensions() void {
     const world_width = main_module.get_world_width();
     const world_height = main_module.get_world_height();
 
-    grid_size_x = @min(MAX_GRID_SIZE, @max(1, @as(u32, @intFromFloat(world_width / BIN_SIZE_PIXELS)) + 1));
-    grid_size_y = @min(MAX_GRID_SIZE, @max(1, @as(u32, @intFromFloat(world_height / BIN_SIZE_PIXELS)) + 1));
+    // Grow the bin instead of clamping the grid: every world position must map to a distinct cell.
+    const largest = @max(world_width, world_height);
+    bin_size = @max(BIN_SIZE_PIXELS, largest / @as(f32, @floatFromInt(MAX_GRID_SIZE - 1)));
+    grid_size_x = @min(MAX_GRID_SIZE, @max(1, @as(u32, @intFromFloat(world_width / bin_size)) + 1));
+    grid_size_y = @min(MAX_GRID_SIZE, @max(1, @as(u32, @intFromFloat(world_height / bin_size)) + 1));
 }
 
 pub fn initializeGrid() void {

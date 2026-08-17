@@ -57,6 +57,19 @@ test "arena: dense order is swap-remove (order-sensitive but deterministic)" {
     try testing.expect(arena.getHandleAt(0).eql(c));
 }
 
+test "spatial: worlds wider than MAX_GRID_SIZE bins grow the bin instead of overflowing edge cells" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(4000, 3000);
+    try testing.expect(spatial.bin_size > spatial.BIN_SIZE_PIXELS);
+    // spread a uniform field over the whole world; no cell may overflow
+    for (0..60) |r| for (0..80) |c| main.add_particle(@as(f32, @floatFromInt(c)) * 48.0 - 1900, @as(f32, @floatFromInt(r)) * 48.0 - 1400, 0);
+    for (0..10) |_| main.update_particles(0.016);
+    try testing.expectEqual(@as(u32, 0), spatial.getOverflowCount());
+    main.set_world_dimensions(1920, 1080);
+    try testing.expectEqual(spatial.BIN_SIZE_PIXELS, spatial.bin_size);
+}
+
 test "spatial: worldToGrid clamps to grid bounds" {
     main.set_world_dimensions(1920, 1080);
     const gx_max: i32 = @intCast(spatial.grid_size_x - 1);

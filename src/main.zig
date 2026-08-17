@@ -544,6 +544,32 @@ pub export fn update_particles(dt: f32) void {
     perf.endFrame();
 }
 
+/// Test oracle: from the current state, generate constraints once and count collision pairs the
+/// spatial scan produced vs a brute-force O(n²) count over predicted positions (mouse excluded).
+pub const CollisionPairCounts = struct { grid: u32, brute: u32 };
+pub fn collisionPairCountsForTest(dt: f32) CollisionPairCounts {
+    physics_system.generateConstraints(dt, DISTANCE_STIFFNESS, COLLISION_STIFFNESS);
+    var grid: u32 = 0;
+    for (0..physics_system.constraint_count) |c| {
+        if (constraints[c].type == .collision) grid += 1;
+    }
+    var brute: u32 = 0;
+    const n = particle_arena.getDenseCount();
+    const contact = PARTICLE_SIZE * 2.0;
+    for (0..n) |i| {
+        if (mouse.isMouseParticle(particle_arena.getHandleAt(@intCast(i)))) continue;
+        const a = particle_arena.getDataAt(@intCast(i));
+        for ((i + 1)..n) |j| {
+            if (mouse.isMouseParticle(particle_arena.getHandleAt(@intCast(j)))) continue;
+            const b = particle_arena.getDataAt(@intCast(j));
+            const dx = a.predicted_x - b.predicted_x;
+            const dy = a.predicted_y - b.predicted_y;
+            if (@sqrt(dx * dx + dy * dy) < contact) brute += 1;
+        }
+    }
+    return .{ .grid = grid, .brute = brute };
+}
+
 /// Benchmark hook: override the XPBD iteration count (clamped to ≥ 1).
 export fn set_xpbd_iterations(n: u32) void {
     xpbd_iterations = @max(1, n);

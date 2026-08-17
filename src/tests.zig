@@ -70,6 +70,31 @@ test "spatial: worlds wider than MAX_GRID_SIZE bins grow the bin instead of over
     try testing.expectEqual(spatial.BIN_SIZE_PIXELS, spatial.bin_size);
 }
 
+test "collisions: spatial scan finds exactly the brute-force contact set (several states)" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    // dense pile of inert particles at contact spacing dropped from the top, plus the default lattices
+    for (0..50) |r| for (0..60) |c| main.add_particle(@as(f32, @floatFromInt(c)) * 10.0 - 300, @as(f32, @floatFromInt(r)) * 10.0 + 40, 0);
+    var total: u32 = 0;
+    for (0..6) |_| {
+        for (0..100) |_| main.update_particles(0.016);
+        const counts = main.collisionPairCountsForTest(0.016 / 6.0);
+        try testing.expectEqual(counts.brute, counts.grid);
+        total += counts.brute;
+    }
+    try testing.expect(total > 500);
+    // and a bonding lattice (valence-6) mid-formation
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..40) |r| for (0..40) |c| main.add_particle(@as(f32, @floatFromInt(c)) * 15.5 - 300, @as(f32, @floatFromInt(r)) * 15.5 - 300, 6);
+    for (0..3) |_| {
+        for (0..40) |_| main.update_particles(0.016);
+        const counts = main.collisionPairCountsForTest(0.016 / 6.0);
+        try testing.expectEqual(counts.brute, counts.grid);
+    }
+}
+
 test "spatial: worldToGrid clamps to grid bounds" {
     main.set_world_dimensions(1920, 1080);
     const gx_max: i32 = @intCast(spatial.grid_size_x - 1);

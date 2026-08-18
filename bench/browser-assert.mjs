@@ -24,7 +24,10 @@ const run = await runBrowserBench();
 printBrowserResults(run);
 // frames actually rendered in the window ≈ duration × fps (the ring caps at 512 entries)
 const framesInWindow = (r) => Math.max(1, (r.durationMs / 1000) * (r.ring.fps || 0), r.ring.frames);
-const perFrame = (r) => r.probes.domMutations / framesInWindow(r);
+// DOM mutations are gated per SECOND: the only intended source is the status line at 4 Hz (fixed
+// rate, independent of fps), so a per-frame ceiling would depend on the frame rate.
+const domPerSec = (r) => r.probes.domMutations / (r.durationMs / 1000);
+const DOM_PER_SEC_FLOOR = 6; // 4 Hz status line + slack
 const bytesPerFrame = (r) => r.heap.appBytes / framesInWindow(r);
 
 console.log("\n== gate ==");
@@ -36,9 +39,9 @@ all.browser ??= {};
 const t = all.browser[run.mode];
 if (setThresholds || !t) {
   all.browser[run.mode] = {
-    _note: `APP alloc bytes/frame and DOM mutations/frame ceilings = first run × ${FACTOR}; ratchet toward 0 after kept wins.`,
+    _note: `APP alloc bytes/frame (floor ${BYTES_PER_FRAME_FLOOR}) and DOM mutations/second (floor ${DOM_PER_SEC_FLOOR}: the 4 Hz status line) ceilings = first run × ${FACTOR}; ratchet after kept wins.`,
     _setFrom: { machine: run.machine.machineId, git: run.machine.gitSha, adapter: `${run.adapter.vendor}/${run.adapter.architecture}`, time: run.machine.timestamp },
-    phases: Object.fromEntries(run.results.map((r) => [r.name, { appBytesPerFrameMax: Math.max(BYTES_PER_FRAME_FLOOR, Math.ceil(bytesPerFrame(r) * FACTOR)), domMutationsPerFrameMax: +(perFrame(r) * FACTOR).toFixed(2) }])),
+    phases: Object.fromEntries(run.results.map((r) => [r.name, { appBytesPerFrameMax: Math.max(BYTES_PER_FRAME_FLOOR, Math.ceil(bytesPerFrame(r) * FACTOR)), domMutationsPerSecMax: Math.max(DOM_PER_SEC_FLOOR, Math.ceil(domPerSec(r) * FACTOR)) }])),
   };
   writeFileSync(THRESHOLDS_PATH, JSON.stringify(all, null, 2) + "\n");
   console.log(`  browser thresholds for mode '${run.mode}' ${t ? "rewritten" : "created"} → bench/thresholds.json`);
@@ -48,7 +51,8 @@ if (setThresholds || !t) {
     if (!c) { warn(`${r.name}: no thresholds`); continue; }
     if (c.appBytesPerFrameMax === undefined) { warn(`${r.name}: thresholds predate the bytes/frame metric — rerun with --set-thresholds`); continue; }
     bytesPerFrame(r) > c.appBytesPerFrameMax ? fail(`${r.name}: APP alloc ${bytesPerFrame(r).toFixed(0)} B/frame > ${c.appBytesPerFrameMax}`) : ok(`${r.name}: APP alloc ${bytesPerFrame(r).toFixed(0)} B/frame ≤ ${c.appBytesPerFrameMax}`);
-    perFrame(r) > c.domMutationsPerFrameMax ? fail(`${r.name}: DOM ${perFrame(r).toFixed(2)}/frame > ${c.domMutationsPerFrameMax}`) : ok(`${r.name}: DOM ${perFrame(r).toFixed(2)}/frame ≤ ${c.domMutationsPerFrameMax}`);
+    if (c.domMutationsPerSecMax === undefined) { warn(`${r.name}: thresholds predate the DOM/sec metric — rerun with --set-thresholds`); continue; }
+    domPerSec(r) > c.domMutationsPerSecMax ? fail(`${r.name}: DOM ${domPerSec(r).toFixed(1)}/s > ${c.domMutationsPerSecMax}`) : ok(`${r.name}: DOM ${domPerSec(r).toFixed(1)}/s ≤ ${c.domMutationsPerSecMax}`);
   }
 }
 console.log(`\n${failures.length ? "GATE FAIL" : "GATE PASS"} — ${failures.length} failure(s), ${warnings.length} warning(s)`);

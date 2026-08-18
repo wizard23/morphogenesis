@@ -1,6 +1,6 @@
 {
   "fast": {
-    "_note": "p95 ms/step ceilings = baseline \u00d7 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10). memoryPagesMax 124 since slice 2 (2026-08-17): SoA cells cost 12 B/slot, 24 slots \u00d7 10 000 cells = 2.9 MB (was 2.6 MB before slice 1) \u2014 accepted for the slice 1+2 speedups; p95 ceilings not re-set (busy machine). 125 since slice 4: springs_to_remove (87 KB) moved from the stack to static memory (stack HWM 81 -> 0 KB). 150 since slice 5: MAX_CONSTRAINTS 71 728 -> 121 728 (collision candidates within contact+margin, ~4.5/particle at capacity), +1.6 MB. 152 since the SoA solver slice (+3 x 44 KB flat solver arrays). Ratcheted to 114 (contact candidates 8 B each, split lists, 2026-08-18).",
+    "_note": "p95 ms/step ceilings = baseline × 1.25; ratchet down after kept wins. Memory ceilings are exact + margin. memoryPagesMax hand-ratcheted to 119 on 2026-08-17 (constraint slimming; p95s deliberately not re-set under load avg 10). memoryPagesMax 124 since slice 2 (2026-08-17): SoA cells cost 12 B/slot, 24 slots × 10 000 cells = 2.9 MB (was 2.6 MB before slice 1) — accepted for the slice 1+2 speedups; p95 ceilings not re-set (busy machine). 125 since slice 4: springs_to_remove (87 KB) moved from the stack to static memory (stack HWM 81 -> 0 KB). 150 since slice 5: MAX_CONSTRAINTS 71 728 -> 121 728 (collision candidates within contact+margin, ~4.5/particle at capacity), +1.6 MB. 152 since the SoA solver slice (+3 x 44 KB flat solver arrays). Ratcheted to 114 (contact candidates 8 B each, split lists, 2026-08-18).",
     "_setFrom": {
       "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
       "git": "9e0a61d",
@@ -25,64 +25,64 @@
   },
   "browser": {
     "swiftshader": {
-      "_note": "APP alloc bytes/frame and DOM mutations/frame ceilings = first run \u00d7 1.25; ratchet toward 0 after kept wins.",
+      "_note": "APP alloc bytes/frame (floor 8) and DOM mutations/second (floor 6: the 4 Hz status line) ceilings = first run × 1.25; ratchet after kept wins.",
       "_setFrom": {
         "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-        "git": "9e0a61d",
+        "git": "197f941",
         "adapter": "google/swiftshader",
-        "time": "2026-08-17T07:54:03.558Z"
+        "time": "2026-08-18T08:34:10.453Z"
       },
       "phases": {
         "idle-paused": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0
+          "domMutationsPerSecMax": 6
         },
         "steady": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0.28
+          "domMutationsPerSecMax": 6
         },
         "drag": {
-          "appBytesPerFrameMax": 1255,
-          "domMutationsPerFrameMax": 0.31
+          "appBytesPerFrameMax": 654,
+          "domMutationsPerSecMax": 6
         },
         "paint": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0.31
+          "domMutationsPerSecMax": 6
         },
         "reset-storm": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0.3
+          "domMutationsPerSecMax": 6
         }
       }
     },
     "gpu": {
-      "_note": "APP alloc bytes/frame and DOM mutations/frame ceilings = first run \u00d7 1.25; ratchet toward 0 after kept wins.",
+      "_note": "APP alloc bytes/frame (floor 8) and DOM mutations/second (floor 6: the 4 Hz status line) ceilings = first run × 1.25; ratchet after kept wins.",
       "_setFrom": {
         "machine": "imac-battleship / Intel(R) Xeon(R) W-2170B CPU @ 2.50GHz / 28 cores",
-        "git": "d0469ab",
+        "git": "197f941",
         "adapter": "amd/gcn-5",
-        "time": "2026-08-17T14:31:17.911Z"
+        "time": "2026-08-18T08:33:53.437Z"
       },
       "phases": {
         "idle-paused": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0
+          "domMutationsPerSecMax": 6
         },
         "steady": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0
+          "domMutationsPerSecMax": 6
         },
         "drag": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0.01
+          "domMutationsPerSecMax": 6
         },
         "paint": {
           "appBytesPerFrameMax": 8,
-          "domMutationsPerFrameMax": 0.01
+          "domMutationsPerSecMax": 6
         },
         "reset-storm": {
-          "appBytesPerFrameMax": 18,
-          "domMutationsPerFrameMax": 0
+          "appBytesPerFrameMax": 16,
+          "domMutationsPerSecMax": 6
         }
       }
     }

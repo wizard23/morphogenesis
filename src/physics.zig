@@ -16,16 +16,11 @@ const NO_INDEX: u32 = 0xFFFFFFFF;
 /// Must exceed the per-step displacement (measured ≤ 4.4 px at 6 iterations, `disp px` counter);
 /// contact + margin must not exceed spatial.BIN_SIZE_PIXELS (3×3 scan exhaustiveness: the grid is populated at generation time, so no displacement slack is needed any more).
 pub const CONTACT_MARGIN: f32 = PARTICLE_SIZE * 2.0;
+pub const CONTACT_DISTANCE: f32 = PARTICLE_SIZE * 2.0;
 
-pub const ConstraintType = enum {
-    distance,
-    collision,
-};
-
-/// One solver constraint. Kept small: it is regenerated every XPBD iteration and streamed by the
-/// solver, and MAX_CONSTRAINTS of them are static memory (was ~100 B with a Boids-era union payload).
+/// One XPBD distance constraint (springs, mouse tethers). Regenerated once per step; MAX_SPRINGS of
+/// them are static memory.
 pub const Constraint = struct {
-    type: ConstraintType,
     particle_a: ParticleHandle,
     particle_b: ParticleHandle,
 
@@ -33,8 +28,7 @@ pub const Constraint = struct {
     dense_a: u32,
     dense_b: u32,
 
-    // Constraint parameters
-    target_value: f32, // rest_length for distance, contact distance for collision
+    target_value: f32, // rest length
     /// XPBD α̃ = 1 / (stiffness · dt²), dt = the full step (constraints live for one step and the
     /// solver iterates over the same predicted state; λ accumulates across those iterations).
     compliance: f32,
@@ -44,7 +38,6 @@ pub const Constraint = struct {
 
     pub fn initDistance(a: ParticleHandle, b: ParticleHandle, rest_length: f32, stiffness: f32, dt: f32) Self {
         return Self{
-            .type = .distance,
             .particle_a = a,
             .particle_b = b,
             .dense_a = 0xFFFFFFFF,
@@ -54,21 +47,11 @@ pub const Constraint = struct {
             .lagrange_multiplier = 0.0,
         };
     }
-
-    /// Contacts are hard (non-compliant) inequality constraints; compliance/λ are unused for them.
-    pub fn initCollision(a: ParticleHandle, b: ParticleHandle, contact_distance: f32) Self {
-        return Self{
-            .type = .collision,
-            .particle_a = a,
-            .particle_b = b,
-            .dense_a = 0xFFFFFFFF,
-            .dense_b = 0xFFFFFFFF,
-            .target_value = contact_distance,
-            .compliance = 0.0,
-            .lagrange_multiplier = 0.0,
-        };
-    }
 };
+
+/// A collision candidate: two dense indices. Contacts are hard inequality constraints at the fixed
+/// contact distance (2 × PARTICLE_SIZE); no per-pair parameters, so 8 B per candidate.
+pub const ContactPair = struct { a: u32, b: u32 };
 
 /// Springs found overstretched during constraint generation, destroyed after the pass. Static so the
 /// per-iteration frame does not carry a MAX_SPRINGS-sized array (was the last big stack user).
@@ -87,9 +70,12 @@ pub const PhysicsSystem = struct {
     particle_arena: *main.ParticleArena,
     spring_arena: *main.SpringArena,
 
-    // Unified constraint array
+    // This step's constraint set: distance constraints first, then contact candidates. Solved in that
+    // order (springs, then contacts) — the same order as the former single array.
     constraints: []Constraint,
     constraint_count: u32,
+    contacts: []ContactPair,
+    contact_count: u32,
 
     const Self = @This();
 
@@ -97,12 +83,15 @@ pub const PhysicsSystem = struct {
         particle_arena: *main.ParticleArena,
         spring_arena: *main.SpringArena,
         constraints: []Constraint,
+        contacts: []ContactPair,
     ) Self {
         return Self{
             .particle_arena = particle_arena,
             .spring_arena = spring_arena,
             .constraints = constraints,
             .constraint_count = 0,
+            .contacts = contacts,
+            .contact_count = 0,
         };
     }
 
@@ -117,6 +106,7 @@ pub const PhysicsSystem = struct {
         mouse_stiffness: f32,
     ) void {
         self.constraint_count = 0;
+        self.contact_count = 0;
 
         var t0 = perf.now();
         var remove_count: u32 = 0;
@@ -171,7 +161,6 @@ pub const PhysicsSystem = struct {
         }
         perf.count(.springs_removed, remove_count);
         perf.add(.gen_springs, t0);
-        const spring_constraint_count = self.constraint_count;
 
         // Generate collision constraints using spatial grid
         t0 = perf.now();
@@ -188,26 +177,23 @@ pub const PhysicsSystem = struct {
         const mouse_dense: u32 = if (mouse.mouse_particle) |mh| (self.particle_arena.getDenseIndex(mh) orelse NO_INDEX) else NO_INDEX;
         for (0..particle_count) |i| {
             if (i == mouse_dense) continue;
-            const handle = self.particle_arena.getHandleAt(@intCast(i));
-            self.generateCollisionConstraintsForParticle(handle, @intCast(i), mouse_dense);
+            self.generateCollisionConstraintsForParticle(@intCast(i), mouse_dense);
         }
-        perf.count(.collision_pairs, self.constraint_count - spring_constraint_count);
-        perf.count(.constraints, self.constraint_count);
+        perf.count(.collision_pairs, self.contact_count);
+        perf.count(.constraints, self.constraint_count + self.contact_count);
         perf.add(.gen_collide, t0);
     }
 
     fn generateCollisionConstraintsForParticle(
         self: *Self,
-        particle_handle: ParticleHandle,
         particle_dense_idx: u32,
         mouse_dense: u32,
     ) void {
         const particle = self.particle_arena.getDataAt(particle_dense_idx);
         const px = particle.predicted_x;
         const py = particle.predicted_y;
-        const contact_distance = PARTICLE_SIZE * 2.0;
         // Candidates: pairs that could touch during this step's iterations (contact + margin).
-        const candidate_radius = contact_distance + CONTACT_MARGIN;
+        const candidate_radius = CONTACT_DISTANCE + CONTACT_MARGIN;
         const candidate_radius_sq = candidate_radius * candidate_radius;
 
         // The grid was populated from predicted positions (see generateConstraints).
@@ -238,16 +224,11 @@ pub const PhysicsSystem = struct {
 
                     if (dist_sq >= candidate_radius_sq) continue;
 
-                    if (self.constraint_count >= self.constraints.len) {
+                    if (self.contact_count >= self.contacts.len) {
                         perf.count(.constraints_dropped, 1);
                     } else {
-                        const neighbor_handle = self.particle_arena.getHandleAt(neighbor_index);
-                        var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance);
-                        constraint.dense_a = particle_dense_idx;
-                        constraint.dense_b = neighbor_index;
-
-                        self.constraints[self.constraint_count] = constraint;
-                        self.constraint_count += 1;
+                        self.contacts[self.contact_count] = .{ .a = particle_dense_idx, .b = neighbor_index };
+                        self.contact_count += 1;
                     }
                 }
             }
@@ -277,7 +258,10 @@ pub const PhysicsSystem = struct {
 
     pub fn solveConstraints(self: *Self) void {
         for (0..self.constraint_count) |i| {
-            self.solveConstraint(&self.constraints[i]);
+            solveDistance(&self.constraints[i]);
+        }
+        for (0..self.contact_count) |i| {
+            solveContact(self.contacts[i]);
         }
     }
 
@@ -300,8 +284,8 @@ pub const PhysicsSystem = struct {
         }
     }
 
-    fn solveConstraint(self: *Self, constraint: *Constraint) void {
-        _ = self;
+    /// XPBD: C = d − rest, ∇C unit along the pair, Δλ = −(C + α̃λ) / (w_a + w_b + α̃)
+    fn solveDistance(constraint: *Constraint) void {
         const a = constraint.dense_a;
         const b = constraint.dense_b;
         if (a == NO_INDEX or b == NO_INDEX or a >= solve_count or b >= solve_count) return;
@@ -309,47 +293,48 @@ pub const PhysicsSystem = struct {
         const dx = pred_x[a] - pred_x[b];
         const dy = pred_y[a] - pred_y[b];
         const current_distance = @sqrt(dx * dx + dy * dy);
+        if (current_distance < 0.001) return;
         const w_a = inv_mass[a];
         const w_b = inv_mass[b];
+        const grad_x = dx / current_distance;
+        const grad_y = dy / current_distance;
+        const constraint_value = current_distance - constraint.target_value;
+        const denominator = w_a + w_b + constraint.compliance;
+        if (denominator < 1e-12) return;
+        const delta_lambda = -(constraint_value + constraint.compliance * constraint.lagrange_multiplier) / denominator;
+        constraint.lagrange_multiplier += delta_lambda;
 
-        switch (constraint.type) {
-            .distance => {
-                // XPBD: C = d − rest, ∇C unit along the pair, Δλ = −(C + α̃λ) / (w_a + w_b + α̃)
-                if (current_distance < 0.001) return;
-                const grad_x = dx / current_distance;
-                const grad_y = dy / current_distance;
-                const constraint_value = current_distance - constraint.target_value;
-                const denominator = w_a + w_b + constraint.compliance;
-                if (denominator < 1e-12) return;
-                const delta_lambda = -(constraint_value + constraint.compliance * constraint.lagrange_multiplier) / denominator;
-                constraint.lagrange_multiplier += delta_lambda;
+        pred_x[a] += w_a * delta_lambda * grad_x;
+        pred_y[a] += w_a * delta_lambda * grad_y;
+        pred_x[b] -= w_b * delta_lambda * grad_x;
+        pred_y[b] -= w_b * delta_lambda * grad_y;
+    }
 
-                pred_x[a] += w_a * delta_lambda * grad_x;
-                pred_y[a] += w_a * delta_lambda * grad_y;
-                pred_x[b] -= w_b * delta_lambda * grad_x;
-                pred_y[b] -= w_b * delta_lambda * grad_y;
-            },
-
-            .collision => {
-                // Non-penetration as a hard inequality: inactive unless closer than contact; then
-                // separate along the normal, weighted by inverse mass. (No velocity impulse: velocity
-                // is recomputed from positions at commit, so contacts are inelastic by design.)
-                if (current_distance < 0.001) {
-                    pred_x[a] += 0.01;
-                    pred_x[b] -= 0.01;
-                    return;
-                }
-                const penetration = constraint.target_value - current_distance;
-                if (penetration <= 0) return;
-                const normal_x = dx / current_distance;
-                const normal_y = dy / current_distance;
-                const w_sum = w_a + w_b;
-                if (w_sum < 1e-12) return;
-                pred_x[a] += normal_x * penetration * (w_a / w_sum);
-                pred_y[a] += normal_y * penetration * (w_a / w_sum);
-                pred_x[b] -= normal_x * penetration * (w_b / w_sum);
-                pred_y[b] -= normal_y * penetration * (w_b / w_sum);
-            },
+    /// Non-penetration as a hard inequality: inactive unless closer than contact; then separate along
+    /// the normal, weighted by inverse mass. (No velocity impulse: velocity is recomputed from
+    /// positions at commit, so contacts are inelastic by design.)
+    fn solveContact(pair: ContactPair) void {
+        const a = pair.a;
+        const b = pair.b;
+        const dx = pred_x[a] - pred_x[b];
+        const dy = pred_y[a] - pred_y[b];
+        const current_distance = @sqrt(dx * dx + dy * dy);
+        if (current_distance < 0.001) {
+            pred_x[a] += 0.01;
+            pred_x[b] -= 0.01;
+            return;
         }
+        const penetration = CONTACT_DISTANCE - current_distance;
+        if (penetration <= 0) return;
+        const w_a = inv_mass[a];
+        const w_b = inv_mass[b];
+        const normal_x = dx / current_distance;
+        const normal_y = dy / current_distance;
+        const w_sum = w_a + w_b;
+        if (w_sum < 1e-12) return;
+        pred_x[a] += normal_x * penetration * (w_a / w_sum);
+        pred_y[a] += normal_y * penetration * (w_a / w_sum);
+        pred_x[b] -= normal_x * penetration * (w_b / w_sum);
+        pred_y[b] -= normal_y * penetration * (w_b / w_sum);
     }
 };

@@ -136,10 +136,11 @@ pub const Spring = struct {
     }
 };
 
-// Distance constraints (≤ MAX_SPRINGS) + collision candidates (~4–5 per particle at capacity with the
-// 1-diameter margin, slice 5). Saturation is counted (`constraints_dropped`) and gated; must be 0.
-const MAX_CONSTRAINTS = MAX_SPRINGS + 100000;
-var constraints: [MAX_CONSTRAINTS]physics.Constraint = undefined;
+// Distance constraints (one per live spring) and collision candidates (~4–5 per particle at capacity
+// with the 1-diameter margin, slice 5). Saturation is counted (`constraints_dropped`) and gated; must be 0.
+const MAX_CONTACT_CANDIDATES = 100000;
+var constraints: [MAX_SPRINGS]physics.Constraint = undefined;
+var contacts: [MAX_CONTACT_CANDIDATES]physics.ContactPair = undefined;
 
 var particle_arena: generational.GenerationalArena(Particle, PARTICLE_COUNT) = undefined;
 var particles_initialized = false;
@@ -171,6 +172,7 @@ fn initializePhysicsSystem() void {
         &particle_arena,
         &spring_arena,
         &constraints,
+        &contacts,
     );
 }
 
@@ -535,10 +537,7 @@ pub export fn update_particles(dt: f32) void {
 pub const CollisionPairCounts = struct { grid: u32, brute: u32 };
 pub fn collisionPairCountsForTest(dt: f32) CollisionPairCounts {
     physics_system.generateConstraints(dt, distance_stiffness, MOUSE_STIFFNESS);
-    var grid: u32 = 0;
-    for (0..physics_system.constraint_count) |c| {
-        if (constraints[c].type == .collision) grid += 1;
-    }
+    const grid: u32 = physics_system.contact_count;
     var brute: u32 = 0;
     const n = particle_arena.getDenseCount();
     const contact = PARTICLE_SIZE * 2.0 + physics.CONTACT_MARGIN; // candidates, not just touching pairs
@@ -639,7 +638,7 @@ export fn get_max_springs() i32 {
 }
 
 export fn get_max_constraints() i32 {
-    return MAX_CONSTRAINTS;
+    return MAX_SPRINGS + MAX_CONTACT_CANDIDATES;
 }
 
 export fn get_particle_size() f32 {

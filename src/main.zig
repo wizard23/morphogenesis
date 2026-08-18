@@ -232,31 +232,6 @@ fn predictPositionsForAliveParticles(dt: f32) void {
     }
 }
 
-/// World box as a hard constraint applied after every solver iteration (the prediction clamp alone
-/// lets constraints — e.g. a tether to a cursor outside the box — drag particles out and back each
-/// step; found via S5 `solve px`, 2026-08-18).
-fn applyBoundaryToAliveParticles() void {
-    const border_x = world_width / 2.0;
-    const border_y = world_height / 2.0;
-    const count = particle_arena.getDenseCount();
-    const mouse_dense: u32 = if (mouse.mouse_particle) |mh| (particle_arena.getDenseIndex(mh) orelse 0xFFFFFFFF) else 0xFFFFFFFF;
-    for (0..count) |i| {
-        if (i == mouse_dense) continue;
-        const particle = particle_arena.getDataAt(@intCast(i));
-        // compare-only in the common (inside) case; store only when outside
-        if (particle.predicted_x > border_x) {
-            particle.predicted_x = border_x;
-        } else if (particle.predicted_x < -border_x) {
-            particle.predicted_x = -border_x;
-        }
-        if (particle.predicted_y > border_y) {
-            particle.predicted_y = border_y;
-        } else if (particle.predicted_y < -border_y) {
-            particle.predicted_y = -border_y;
-        }
-    }
-}
-
 fn updatePositionsForAliveParticles(dt: f32) void {
     const count = particle_arena.getDenseCount();
     for (0..count) |i| {
@@ -534,13 +509,19 @@ pub export fn update_particles(dt: f32) void {
     // Constraints once per step (springs + collision candidates within the margin), then the XPBD
     // iterations solve that fixed set with accumulating λ. dt is the full step for compliance.
     physics_system.generateConstraints(dt, distance_stiffness, MOUSE_STIFFNESS);
+    t0 = perf.now();
+    physics_system.beginSolve();
+    perf.add(.gen_grid, t0); // SoA copy-in accounted with the (small) generation bookkeeping
     for (0..xpbd_iterations) |_| {
         t0 = perf.now();
         physics_system.solveConstraints();
-        applyBoundaryToAliveParticles();
+        physics_system.applyBoundary(world_width / 2.0, world_height / 2.0);
         perf.add(.solve, t0);
         perf.count(.iterations, 1);
     }
+    t0 = perf.now();
+    physics_system.endSolve();
+    perf.add(.commit, t0);
 
     t0 = perf.now();
     updatePositionsForAliveParticles(dt);

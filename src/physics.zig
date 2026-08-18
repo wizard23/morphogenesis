@@ -74,6 +74,14 @@ pub const Constraint = struct {
 /// per-iteration frame does not carry a MAX_SPRINGS-sized array (was the last big stack user).
 var springs_to_remove: [MAX_SPRINGS]SpringHandle = undefined;
 
+/// SoA solver state for one step, indexed by dense particle index: the solver and the boundary pass
+/// touch only these flat arrays (4 B stride) instead of 44 B arena entries; copied in after
+/// constraint generation and written back before commit (slice "SoA solver", 2026-08-18).
+var pred_x: [PARTICLE_COUNT]f32 = undefined;
+var pred_y: [PARTICLE_COUNT]f32 = undefined;
+var inv_mass: [PARTICLE_COUNT]f32 = undefined;
+var solve_count: u32 = 0;
+
 pub const PhysicsSystem = struct {
     // Direct references to arenas - no callbacks needed
     particle_arena: *main.ParticleArena,
@@ -246,29 +254,63 @@ pub const PhysicsSystem = struct {
         }
     }
 
+    /// Copy predicted positions and inverse masses into the SoA solver arrays.
+    pub fn beginSolve(self: *Self) void {
+        const n = self.particle_arena.getDenseCount();
+        solve_count = n;
+        for (0..n) |i| {
+            const p = self.particle_arena.getDataAt(@intCast(i));
+            pred_x[i] = p.predicted_x;
+            pred_y[i] = p.predicted_y;
+            inv_mass[i] = 1.0 / p.mass;
+        }
+    }
+
+    /// Write solved predictions back to the arena.
+    pub fn endSolve(self: *Self) void {
+        for (0..solve_count) |i| {
+            const p = self.particle_arena.getDataAt(@intCast(i));
+            p.predicted_x = pred_x[i];
+            p.predicted_y = pred_y[i];
+        }
+    }
+
     pub fn solveConstraints(self: *Self) void {
         for (0..self.constraint_count) |i| {
             self.solveConstraint(&self.constraints[i]);
         }
     }
 
-    fn solveConstraint(self: *Self, constraint: *Constraint) void {
-        // Use cached dense indices for direct access
-        if (constraint.dense_a == NO_INDEX or constraint.dense_b == NO_INDEX or
-            constraint.dense_a >= self.particle_arena.getDenseCount() or
-            constraint.dense_b >= self.particle_arena.getDenseCount())
-        {
-            return;
+    /// World box as a hard constraint on the SoA state (after every iteration). Fixed particles
+    /// (inverse mass 0, i.e. the mouse) are left alone.
+    pub fn applyBoundary(self: *Self, half_w: f32, half_h: f32) void {
+        _ = self;
+        for (0..solve_count) |i| {
+            if (inv_mass[i] == 0) continue;
+            if (pred_x[i] > half_w) {
+                pred_x[i] = half_w;
+            } else if (pred_x[i] < -half_w) {
+                pred_x[i] = -half_w;
+            }
+            if (pred_y[i] > half_h) {
+                pred_y[i] = half_h;
+            } else if (pred_y[i] < -half_h) {
+                pred_y[i] = -half_h;
+            }
         }
+    }
 
-        const particle_a = self.particle_arena.getDataAt(constraint.dense_a);
-        const particle_b = self.particle_arena.getDataAt(constraint.dense_b);
+    fn solveConstraint(self: *Self, constraint: *Constraint) void {
+        _ = self;
+        const a = constraint.dense_a;
+        const b = constraint.dense_b;
+        if (a == NO_INDEX or b == NO_INDEX or a >= solve_count or b >= solve_count) return;
 
-        const dx = particle_a.predicted_x - particle_b.predicted_x;
-        const dy = particle_a.predicted_y - particle_b.predicted_y;
+        const dx = pred_x[a] - pred_x[b];
+        const dy = pred_y[a] - pred_y[b];
         const current_distance = @sqrt(dx * dx + dy * dy);
-        const w_a = 1.0 / particle_a.mass;
-        const w_b = 1.0 / particle_b.mass;
+        const w_a = inv_mass[a];
+        const w_b = inv_mass[b];
 
         switch (constraint.type) {
             .distance => {
@@ -282,10 +324,10 @@ pub const PhysicsSystem = struct {
                 const delta_lambda = -(constraint_value + constraint.compliance * constraint.lagrange_multiplier) / denominator;
                 constraint.lagrange_multiplier += delta_lambda;
 
-                particle_a.predicted_x += w_a * delta_lambda * grad_x;
-                particle_a.predicted_y += w_a * delta_lambda * grad_y;
-                particle_b.predicted_x -= w_b * delta_lambda * grad_x;
-                particle_b.predicted_y -= w_b * delta_lambda * grad_y;
+                pred_x[a] += w_a * delta_lambda * grad_x;
+                pred_y[a] += w_a * delta_lambda * grad_y;
+                pred_x[b] -= w_b * delta_lambda * grad_x;
+                pred_y[b] -= w_b * delta_lambda * grad_y;
             },
 
             .collision => {
@@ -293,8 +335,8 @@ pub const PhysicsSystem = struct {
                 // separate along the normal, weighted by inverse mass. (No velocity impulse: velocity
                 // is recomputed from positions at commit, so contacts are inelastic by design.)
                 if (current_distance < 0.001) {
-                    particle_a.predicted_x += 0.01;
-                    particle_b.predicted_x -= 0.01;
+                    pred_x[a] += 0.01;
+                    pred_x[b] -= 0.01;
                     return;
                 }
                 const penetration = constraint.target_value - current_distance;
@@ -303,10 +345,10 @@ pub const PhysicsSystem = struct {
                 const normal_y = dy / current_distance;
                 const w_sum = w_a + w_b;
                 if (w_sum < 1e-12) return;
-                particle_a.predicted_x += normal_x * penetration * (w_a / w_sum);
-                particle_a.predicted_y += normal_y * penetration * (w_a / w_sum);
-                particle_b.predicted_x -= normal_x * penetration * (w_b / w_sum);
-                particle_b.predicted_y -= normal_y * penetration * (w_b / w_sum);
+                pred_x[a] += normal_x * penetration * (w_a / w_sum);
+                pred_y[a] += normal_y * penetration * (w_a / w_sum);
+                pred_x[b] -= normal_x * penetration * (w_b / w_sum);
+                pred_y[b] -= normal_y * penetration * (w_b / w_sum);
             },
         }
     }

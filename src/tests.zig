@@ -176,6 +176,27 @@ test "mouse: a press after reset() grabs particles and the drag changes the stat
     try testing.expect(perf.stateChecksum() != undragged);
 }
 
+test "boundary: a tether to a cursor outside the world cannot pull particles out of the box" {
+    main.init();
+    main.reset();
+    main.set_world_dimensions(1920, 1080);
+    for (0..600) |_| main.update_particles(0.016);
+    // grab something on the floor and drag the cursor 80 px below the world
+    main.set_mouse_interaction(-463, -540, true);
+    for (0..60) |i| {
+        main.set_mouse_interaction(-463, -540 - @as(f32, @floatFromInt(i)) * 1.5, true);
+        main.update_particles(0.016);
+        const n = main.getDenseParticleCount();
+        for (0..n) |k| {
+            const p = main.getDenseParticleAt(@intCast(k));
+            if (p.mass == std.math.inf(f32)) continue; // the mouse particle itself
+            try testing.expect(p.y >= -540.0 - 1e-3 and p.y <= 540.0 + 1e-3);
+            try testing.expect(p.x >= -960.0 - 1e-3 and p.x <= 960.0 + 1e-3);
+        }
+    }
+    main.set_mouse_interaction(0, 0, false);
+}
+
 test "valence refund saturates at 0 when a mouse spring breaks (Debug safety)" {
     main.init();
     main.reset();

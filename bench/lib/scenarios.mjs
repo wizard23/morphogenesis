@@ -3,7 +3,7 @@
 export const WORLD_W = 1920;
 export const WORLD_H = 1080;
 export const DT = 0.016;
-export const SCENARIO_VERSION = 1;
+export const SCENARIO_VERSION = 2; // 2: S5 drive starts at the press point (2026-08-18)
 
 /** Paint a block of particles: rows × cols at `spacing`, centred on (cx, cy). Returns count. */
 export function paintBlock(e, { cx, cy, cols, rows, spacing, valence }) {
@@ -78,7 +78,7 @@ export const SCENARIOS = [
     // Presses on an actual particle (dense index 0, read from the bulk buffer) — the lattice has
     // fallen to the floor after the settle, so a fixed press position would grab nothing.
     // History: until 2026-08-17 the drag had no effect (stale mouse handle after reset(), fixed).
-    id: "S5", key: "drag", title: "S2 + press on particle 0, circular drag (r=60) around it",
+    id: "S5", key: "drag", title: "S2 + press on particle 0, circular drag (r=60) starting at the press point",
     setup(e) {
       freshScene(e); step(e, 600);
       const [x, y] = particlePosition(e, 0);
@@ -86,8 +86,9 @@ export const SCENARIOS = [
       e.set_mouse_interaction(x, y, true);
     },
     drive(e, i) {
+      // circle of r=60 that starts AT the press point (no teleport on the first drive step)
       const a = (i / 300) * 2 * Math.PI;
-      e.set_mouse_interaction(this._cx + 60 * Math.cos(a), this._cy + 60 * Math.sin(a), true);
+      e.set_mouse_interaction(this._cx + 60 * (Math.cos(a) - 1), this._cy + 60 * Math.sin(a), true);
     },
     teardown(e) { e.set_mouse_interaction(0, 0, false); },
   },

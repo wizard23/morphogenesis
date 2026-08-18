@@ -1,107 +1,51 @@
 # Morphogenesis
 
-A real-time particle simulation system exploring artificial life and morphogenesis, inspired by Michael Levin's work and Alan Turing's work on the chemical basis of morphogenesis.
+A real-time 2D particle / soft-body sandbox exploring artificial life and morphogenesis (after Michael
+Levin and Alan Turing). Particles carry a *valence*, bond to neighbours with springs until it is
+satisfied, bonds break when overstretched, and you can drag particles or paint new ones.
 
-## Features
+- **Simulation**: Zig → `wasm32-freestanding` (XPBD springs, hard contacts, spatial hash, generational
+  arenas; deterministic — same inputs, same state).
+- **Rendering**: WebGPU (instanced particles, spring lines) from a small vanilla-JS host.
 
-- **Zig + WebAssembly**: Core simulation logic compiled from Zig to WASM
-- **WebGPU Rendering**: Hardware-accelerated graphics with modern GPU APIs
-- **Real-time Animation**: Smooth 60fps particle animations
-- **Fullscreen Experience**: Immersive particle simulations
+## Run
 
-## Prerequisites
+```bash
+./build.sh            # Zig 0.16 → webgpu-demo.wasm (ReleaseFast, stripped; STRIP=0 keeps symbols, PERF=1 adds instrumentation)
+npm install           # dev server deps (+ Playwright for the browser benchmarks)
+npm run dev           # http://localhost:8000 — rebuilds on .zig changes, hot-reloads the page
+```
 
-- **Zig 0.13.0+** - [Download from ziglang.org](https://ziglang.org/download/)
-- **WebGPU-compatible browser** - Chrome, Firefox, or Safari
-- **node** - For local development server
+Any WebGPU-capable browser. Controls: **Q/G** grab & drag · **0–6** spawn tool with that valence
+(paint by dragging) · buttons: pause / step / reset. Status line: `fps ms | P:particles S:springs |
+world | grid | bin`.
 
-## Quick Start
+## Layout
 
-1. **Build the project**:
-   ```bash
-   ./build.sh
-   ```
+| Path | What |
+|---|---|
+| `src/main.zig` | constants, particle/spring types, step driver, valence bonding, WASM exports |
+| `src/physics.zig` | constraint generation (once per step) and the XPBD solver |
+| `src/spatial.zig` | spatial hash grid (SoA cells) |
+| `src/generational.zig` | generational arena (handles + dense storage) |
+| `src/mouse.zig` | cursor as an infinite-mass particle, grab tethers |
+| `src/perf.zig`, `src/host.zig`, `src/tests.zig` | instrumentation (`-Dperf`), host shim, unit tests (`zig build test`) |
+| `script.js`, `renderer.js` | host: input, loop, WebGPU |
+| `bench/` | performance harness — see below |
+| `docs/` | plans, reports, principles, measurement notes |
 
-2. **Serve the demo**:
-   ```bash
-   python3 -m http.server 8000
-   ```
+## Performance workflow
 
-3. **Open in browser**:
-   ```
-   http://localhost:8000
-   ```
+Measured, not guessed — see [`docs/HOWTO-performance.md`](docs/HOWTO-performance.md).
 
-## Technical Stack
+```bash
+npm run test:zig               # unit tests (arena, spatial, determinism, contact-set oracle)
+npm run bench:sim              # Tier 1: wasm step timing per scenario, phase split, counters, checksum
+npm run bench:sim:assert       # the gate: determinism, Debug≡ReleaseFast, p95/memory ceilings
+npm run bench:sim:ab -- --a HEAD --b .   # interleaved A/B of two builds (paired ratios)
+npm run bench:browser          # Tier 2: headless Chromium + WebGPU (GPU=1 for the real adapter)
+```
 
-- **Zig 0.13.0** - Systems programming language
-- **WebGPU** - Modern graphics API
-- **WebAssembly** - High-performance web execution
-- **WGSL Shaders** - WebGPU Shading Language
-
-## Build System
-
-- `build.zig` - Zig build configuration
-- `build.sh` - Build helper script
-- `src/main.zig` - Core Zig implementation
-
-## Roadmap
-
-**Current**: Animated triangle demo showcasing the complete WebGPU + Zig + WASM pipeline
-
-**Phase 1**: Basic particle simulation with Boids-like flocking behavior
-- Particle system with position, velocity, acceleration
-- Simple rules: separation, alignment, cohesion
-- WebGPU instanced rendering for performance
-
-**Phase 2**: Spring connections and mesh topology
-- Spring relationships forming dynamic mesh structures
-- Particle repulsion and collision detection
-- Morphogenic signal diffusion through connections
-
-**Phase 3**: Growth and evolution mechanisms
-- Particles can spawn new nodes using simple rules
-- Neural networks for growth/connection decisions
-- Complex emergent behaviors and shape formation
-
-##  Testing & Best Practices
-
-. **Test with browser MCP**: Use browser automation to capture performance
-   - Navigate to `http://localhost:8000` 
-   - Take screenshots to verify smooth animation
-   - Monitor console for any errors
-   - Observe flocking behavior quality
-
-
-
-### Algorithm Optimization
-
-The Boids system uses **spatial partitioning** for O(n) performance:
-- 16x16 spatial grid for fast neighbor queries
-- Each particle only checks surrounding 9 grid cells
-- Dramatic performance improvement over naive O(n²) approach
-
-### Buffer Allocation
-
-The system uses a sophisticated multi-tier buffer allocation strategy implemented in Zig:
-
-**Particle System:**
-- **Grid Particles**: 5 grids × 144 particles each = 720 structured particles
-- **Free Agents**: 1,000 boids/autonomous particles  
-- **User Expansion**: 10,000 slots for runtime particle addition
-- **Total Capacity**: ~11,720 particles with room for growth
-
-**Memory Management:**
-- **Generational Arena**: Safe handle-based particle references with O(1) spawn/destroy
-- **Dense Arrays**: Optimized iteration using packed alive particles only
-- **Spatial Grid**: Dynamic grid sizing with 500 particles per cell maximum
-- **Spring Network**: ~20,000+ spring capacity supporting complex connectivity
-
-**Performance Features:**
-- Bulk data transfer for WebGL rendering
-- Automatic memory defragmentation
-- Handle validation prevents use-after-free bugs
-
-## Goal
-
-Build a web-based, high-performance simulation platform that layers interactions incrementally, starting with fundamental particle dynamics and evolving toward complex morphogenesis.
+Principles: [`docs/principles/kaizen.md`](docs/principles/kaizen.md),
+[`docs/principles/determinism.md`](docs/principles/determinism.md). Current status and history:
+`docs/perf/`, `docs/progress/performance/`.

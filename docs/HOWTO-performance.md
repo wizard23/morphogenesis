@@ -124,5 +124,7 @@ similar `constr/it` and `S` · warm-up plateaued.
 - Tier 2 DOM and alloc ceilings are per *rendered frame in the window* (not per ring entry — the ring
   caps at 512). Event-driven allocation (e.g. `reset()` logging, and the wasm→JS `perf_now` boundary
   the sampler attributes it to) shows up in `reset-storm`, perf builds only — not a render-path signal.
+- **`@min(@max(x, lo), hi)` on f32 was 10× slower than compare-and-branch in a hot wasm loop**
+  (0.17 vs 0.02 ms for 6 × 933 clamps at S2, 2026-08-18) — measure before using the "branchless" form.
 - Stack HWM `+` means the probe saturated (real use ≥ probe); the probe covers the whole shadow
   stack on wasm, so `+` there means overflow is imminent.

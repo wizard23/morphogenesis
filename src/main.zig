@@ -28,19 +28,19 @@ const XPBD_ITERATIONS = 6;
 // const XPBD_SUBSTEPS = 6;
 var xpbd_iterations: u32 = XPBD_ITERATIONS; // runtime override for benchmarks (set_xpbd_iterations)
 
-const DISTANCE_STIFFNESS = 1000_000_000.0;
-const COLLISION_STIFFNESS = 1.0;
+// XPBD stiffness k: compliance α̃ = 1/(k·dt²) with dt = the full step. 200 ≈ the pre-2026-08-17
+// effective softness (see the slice 5 hand-over note); 1e9 is a rigid rod. Tune freely.
+const DISTANCE_STIFFNESS = 200.0;
+// Mouse tether: much stiffer than lattice springs so dragging feels firm.
 const MOUSE_STIFFNESS = 50000.0;
+var distance_stiffness: f32 = DISTANCE_STIFFNESS; // runtime override for benchmarks (set_distance_stiffness)
 
 const AIR_DAMPING = 1.0;
 const GRAVITY = 25.0;
 
 pub const SPRING_REST_LENGTH = PARTICLE_SIZE * 3.1;
-const SEPARATION_RADIUS = PARTICLE_SIZE * 1.5;
 pub const GRID_SPACING = PARTICLE_SIZE * 2.8;
 
-const SPRING_STRENGTH = DISTANCE_STIFFNESS;
-const SEPARATION_STRENGTH = COLLISION_STIFFNESS;
 
 const GRID_MAX_SPRINGS = GRID_COUNT * PARTICLES_PER_GRID * 4;
 const USER_ADDED_MAX_SPRINGS = EXTRA_PARTICLE_SLOTS * 2;
@@ -228,6 +228,31 @@ fn predictPositionsForAliveParticles(dt: f32) void {
             const ddx = particle.predicted_x - particle.x;
             const ddy = particle.predicted_y - particle.y;
             perf.maxDistSq(.max_step_disp_milli, ddx * ddx + ddy * ddy);
+        }
+    }
+}
+
+/// World box as a hard constraint applied after every solver iteration (the prediction clamp alone
+/// lets constraints — e.g. a tether to a cursor outside the box — drag particles out and back each
+/// step; found via S5 `solve px`, 2026-08-18).
+fn applyBoundaryToAliveParticles() void {
+    const border_x = world_width / 2.0;
+    const border_y = world_height / 2.0;
+    const count = particle_arena.getDenseCount();
+    const mouse_dense: u32 = if (mouse.mouse_particle) |mh| (particle_arena.getDenseIndex(mh) orelse 0xFFFFFFFF) else 0xFFFFFFFF;
+    for (0..count) |i| {
+        if (i == mouse_dense) continue;
+        const particle = particle_arena.getDataAt(@intCast(i));
+        // compare-only in the common (inside) case; store only when outside
+        if (particle.predicted_x > border_x) {
+            particle.predicted_x = border_x;
+        } else if (particle.predicted_x < -border_x) {
+            particle.predicted_x = -border_x;
+        }
+        if (particle.predicted_y > border_y) {
+            particle.predicted_y = border_y;
+        } else if (particle.predicted_y < -border_y) {
+            particle.predicted_y = -border_y;
         }
     }
 }
@@ -508,10 +533,11 @@ pub export fn update_particles(dt: f32) void {
 
     // Constraints once per step (springs + collision candidates within the margin), then the XPBD
     // iterations solve that fixed set with accumulating λ. dt is the full step for compliance.
-    physics_system.generateConstraints(dt, DISTANCE_STIFFNESS, COLLISION_STIFFNESS);
+    physics_system.generateConstraints(dt, distance_stiffness, MOUSE_STIFFNESS);
     for (0..xpbd_iterations) |_| {
         t0 = perf.now();
         physics_system.solveConstraints();
+        applyBoundaryToAliveParticles();
         perf.add(.solve, t0);
         perf.count(.iterations, 1);
     }
@@ -527,7 +553,7 @@ pub export fn update_particles(dt: f32) void {
 /// spatial scan produced vs a brute-force O(n²) count over predicted positions (mouse excluded).
 pub const CollisionPairCounts = struct { grid: u32, brute: u32 };
 pub fn collisionPairCountsForTest(dt: f32) CollisionPairCounts {
-    physics_system.generateConstraints(dt, DISTANCE_STIFFNESS, COLLISION_STIFFNESS);
+    physics_system.generateConstraints(dt, distance_stiffness, MOUSE_STIFFNESS);
     var grid: u32 = 0;
     for (0..physics_system.constraint_count) |c| {
         if (constraints[c].type == .collision) grid += 1;
@@ -547,6 +573,15 @@ pub fn collisionPairCountsForTest(dt: f32) CollisionPairCounts {
         }
     }
     return .{ .grid = grid, .brute = brute };
+}
+
+/// Benchmark hook: override the spring stiffness k (> 0). Restore with the default constant.
+export fn set_distance_stiffness(k: f32) void {
+    distance_stiffness = if (k > 0) k else DISTANCE_STIFFNESS;
+}
+
+export fn get_distance_stiffness() f32 {
+    return distance_stiffness;
 }
 
 /// Benchmark hook: override the XPBD iteration count (clamped to ≥ 1).

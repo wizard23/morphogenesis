@@ -55,15 +55,16 @@ pub const Constraint = struct {
         };
     }
 
-    pub fn initCollision(a: ParticleHandle, b: ParticleHandle, min_dist: f32, stiffness: f32, dt: f32) Self {
+    /// Contacts are hard (non-compliant) inequality constraints; compliance/λ are unused for them.
+    pub fn initCollision(a: ParticleHandle, b: ParticleHandle, contact_distance: f32) Self {
         return Self{
             .type = .collision,
             .particle_a = a,
             .particle_b = b,
             .dense_a = 0xFFFFFFFF,
             .dense_b = 0xFFFFFFFF,
-            .target_value = min_dist,
-            .compliance = 1.0 / (stiffness * dt * dt),
+            .target_value = contact_distance,
+            .compliance = 0.0,
             .lagrange_multiplier = 0.0,
         };
     }
@@ -105,7 +106,7 @@ pub const PhysicsSystem = struct {
         self: *Self,
         dt: f32,
         distance_stiffness: f32,
-        collision_stiffness: f32,
+        mouse_stiffness: f32,
     ) void {
         self.constraint_count = 0;
 
@@ -143,7 +144,8 @@ pub const PhysicsSystem = struct {
                 } else if (self.constraint_count >= self.constraints.len) {
                     perf.count(.constraints_dropped, 1);
                 } else {
-                    var constraint = Constraint.initDistance(spring.particle_a, spring.particle_b, spring.rest_length, distance_stiffness, dt);
+                    const stiffness = if (is_mouse_spring) mouse_stiffness else distance_stiffness;
+                    var constraint = Constraint.initDistance(spring.particle_a, spring.particle_b, spring.rest_length, stiffness, dt);
 
                     // Cache dense indices
                     constraint.dense_a = self.particle_arena.getDenseIndex(spring.particle_a) orelse 0xFFFFFFFF;
@@ -179,7 +181,7 @@ pub const PhysicsSystem = struct {
         for (0..particle_count) |i| {
             if (i == mouse_dense) continue;
             const handle = self.particle_arena.getHandleAt(@intCast(i));
-            self.generateCollisionConstraintsForParticle(handle, @intCast(i), mouse_dense, dt, collision_stiffness);
+            self.generateCollisionConstraintsForParticle(handle, @intCast(i), mouse_dense);
         }
         perf.count(.collision_pairs, self.constraint_count - spring_constraint_count);
         perf.count(.constraints, self.constraint_count);
@@ -191,8 +193,6 @@ pub const PhysicsSystem = struct {
         particle_handle: ParticleHandle,
         particle_dense_idx: u32,
         mouse_dense: u32,
-        dt: f32,
-        collision_stiffness: f32,
     ) void {
         const particle = self.particle_arena.getDataAt(particle_dense_idx);
         const px = particle.predicted_x;
@@ -201,7 +201,6 @@ pub const PhysicsSystem = struct {
         // Candidates: pairs that could touch during this step's iterations (contact + margin).
         const candidate_radius = contact_distance + CONTACT_MARGIN;
         const candidate_radius_sq = candidate_radius * candidate_radius;
-        const billiard_stiffness = collision_stiffness * 10.0;
 
         // The grid was populated from predicted positions (see generateConstraints).
         const gx = spatial.worldToGridX(px);
@@ -235,7 +234,7 @@ pub const PhysicsSystem = struct {
                         perf.count(.constraints_dropped, 1);
                     } else {
                         const neighbor_handle = self.particle_arena.getHandleAt(neighbor_index);
-                        var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance, billiard_stiffness, dt);
+                        var constraint = Constraint.initCollision(particle_handle, neighbor_handle, contact_distance);
                         constraint.dense_a = particle_dense_idx;
                         constraint.dense_b = neighbor_index;
 

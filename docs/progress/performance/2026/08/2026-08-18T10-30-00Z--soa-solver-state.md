@@ -15,8 +15,8 @@ commit. Fixed particles (inverse mass 0 = the mouse) are skipped by the boundary
 | S6 | 7.354 | 6.870 | −7.0 % (2.4 %) | −6.7 % (3.2 %) | **B faster** | −10 % | same |
 
 Bit-identical checksums: pure data-layout change (same arithmetic, same order). Copy-in is accounted
-in `gen_grid` (+8…18 % of a small phase), write-back in `commit`. Memory +3 × 44 KB static (150 pages
-unchanged). Gate PASS.
+in `gen_grid` (+8…18 % of a small phase), write-back in `commit`. Memory +3 × 44 KB static → 152 pages (ceiling raised 150 → 152 with note; the first
+gate run caught my "unchanged" claim). Gate PASS after the ceiling update.
 
 **Keep.** Next on `solve`: split distance/collision lists (drops the per-constraint type switch,
 preserves order), then wasm SIMD.

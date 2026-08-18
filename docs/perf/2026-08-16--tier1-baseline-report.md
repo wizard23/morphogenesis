@@ -101,3 +101,12 @@ render path 0/0/0; shipped wasm 1.8 MB → 54 KB; linear memory 34 → 9.8 MB. P
 slice 5 (true XPBD, once-per-step generation) — tuning hand-over in
 `docs/progress/performance/2026/08/2026-08-17T16-00-00Z--slice5-once-per-step-generation-true-xpbd.md`.
 `solve` is now the dominant phase (47–66 %).
+
+## Status 2026-08-18
+
+Tuning defaults set (`DISTANCE_STIFFNESS = 200`, `MOUSE_STIFFNESS = 50000` wired), world box enforced
+per solver iteration, SoA solver state, split distance/contact lists. Default scene ≈ 0.5 ms/step
+(machine ~10 % slower today under load; paired A/Bs are the comparisons), memory 7.1 MB, shipped
+wasm 54 KB. `solve` remains the largest phase (~50 %); next ideas: wasm SIMD over the flat solver
+arrays, dirty-cell grid clear. Slice 0 (re-set p95 ceilings on an idle machine) still pending — load
+never dropped below 7 in two days.
